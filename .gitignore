@@ -26,3 +26,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Supabase seed (contains real user UUIDs — keep local; commit seed.sql.example template instead)
+supabase/seed.sql

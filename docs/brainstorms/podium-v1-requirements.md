@@ -70,7 +70,7 @@ The builder has tried to solve this multiple times in the past. Each attempt sta
 **Source coverage**
 
 - R1. v1 ships with the SF 49ers as the only active team. The data model and ingestion logic accommodate adding other teams (and other sports) by adding a row plus a universe config — no code changes.
-- R2. The daily run pulls from a curated list of ~20 podcasts (mix of Niners-specific shows like *Niners Nation* and national shows like *The Mina Kimes Show*) AND from the full Particle library. The curated list is the default-rendered surface in v1; the broader "discovery" surface is one config flag away (Phase 2).
+- R2. The daily run pulls from a curated list of ~31 podcasts (mix of Niners-specific shows like *Niners Nation* and national shows like *The Mina Kimes Show*) AND from the full Particle library. The curated list is the default-rendered surface in v1; the broader "discovery" surface is one config flag away (Phase 2). The exact list is finalized during planning and lives in `config/podcasts.ts` once the project scaffolds.
 - R3. The "Niners universe" is a config object containing: team name(s) and entity slug(s); the full active roster as entity slugs; coaching staff entity slugs; and 4–6 storyline-shaped semantic search queries (e.g. "49ers cap space and contracts", "49ers draft", "NFC West race").
 
 **Content surface**
@@ -178,7 +178,7 @@ The builder has tried to solve this multiple times in the past. Each attempt sta
 
 ## Dependencies / Assumptions
 
-- Particle API access with sufficient pricing tier and rate limits to cover daily queries: ~30 entity-mention searches + ~6 semantic searches + episode-listing across ~20 curated podcasts. Pricing tier confirmation is an outstanding question.
+- Particle API access with sufficient pricing tier and rate limits to cover daily queries: ~30 entity-mention searches + ~6 semantic searches + episode-listing across the ~31 curated podcasts. Account is on the Starter tier ($10 starter credit, ~$0.004/req list price, no payment method on file as of planning) — plan must be cost-conscious by default and surface telemetry in-app.
 - Anthropic API access for Claude Haiku 4.5 (with prompt caching to control cost).
 - User maintains active paid Vercel Pro and Supabase Pro subscriptions for the lifetime of the product.
 - Particle's knowledge graph contains 49ers-relevant entities (team slug, current roster players, coaches Shanahan and Lynch). High confidence given Particle's coverage scope, but to be verified at planning time against actual API responses.
