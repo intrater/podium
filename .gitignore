@@ -1,0 +1,28 @@
+# Local Claude Code settings (per-machine, not shared)
+.claude/settings.local.json
+
+# Particle docs (fetched locally for reference, not committed)
+docs/particle/
+
+# Node
+node_modules/
+.next/
+.turbo/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
