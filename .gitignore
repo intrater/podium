@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# But DO commit the example template — that's the contract for new contributors.
+!.env.local.example
 
 # vercel
 .vercel
