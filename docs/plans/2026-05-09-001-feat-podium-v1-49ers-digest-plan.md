@@ -185,33 +185,33 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-09
+Last updated: 2026-05-10 (post-U5)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
 | **Phase A — Foundation & verification** | | | |
-| U1 | Particle API verification | **done (docs)** | Docs-based verification complete (8 dimensions). 6 empirical tests need live API calls — blocked on user laptop session. |
+| U1 | Particle API verification | **done** | Docs + live-API verification complete. All 8 dimensions resolved; both contingency rounds collapsed (see `docs/solutions/2026-05-09-particle-api-shape.md`). Per-call credit weights still pending dashboard inspection but not blocking. |
 | U2 | Next.js scaffold | **done** | Next.js 16 + Tailwind v4 + shadcn/ui + Motion. All files in place, builds clean. |
 | U3 | Env, secrets, Supabase projects | **done** | `lib/env.ts`, `.env.local.example`, setup walkthrough, `.env.local` populated, build verified. Vercel env vars pending (needed for deploy, not local dev). |
 | U4 | Domain → Vercel | **not started** | User adds DNS records at registrar. Only needed for production deploy. |
 | **Phase B — Data layer** | | | |
-| U5 | Schema + RLS + stub-auth | **not started** | Next up. Supabase project exists and is healthy. |
-| U6 | Niners universe + seed | **not started** | Blocked on U5 (tables must exist). Will use predicted entity slugs; U1 empirical confirms later. |
+| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0005 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite (7 tests) passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. |
+| U6 | Niners universe + seed | **not started** | Blocked on U5. Predicted slugs confirmed 100% accurate for 49ers — universe is just data, no startup resolution script. Curated 31-podcast list defined against live catalog (5-min sweep). |
 | **Phase C — Ingestion & summarization** | | | |
-| U7 | Particle client + cost telemetry | **not started** | Blocked on U5 (`api_calls` table) and U1 empirical (response shapes). |
+| U7 | Particle client + cost telemetry | **not started** | Blocked on U5 (`api_calls` table). Response shape now fully verified; rate-limit handling can be simple (10k/min ceiling). |
 | U8 | Daily ingestion worker | **not started** | Blocked on U6, U7, U9. |
-| U9 | Claude Haiku summarization | **not started** | Blocked on U5 (`segments` table) and U7 (segment shape). |
+| U9 | Claude Haiku summarization | **not started** | Blocked on U5 (`segments` table) and U7 (segment shape). Segment boundaries are topical (median ~2 min) — prompt does not need "extract relevant portion" gymnastics. |
 | **Phase D — Design & UI** | | | |
 | U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
 | U11 | Digest card grid | **not started** | Blocked on U5, U10. |
-| U12 | MVP audio player | **not started** | Blocked on U1 empirical (audio URL behavior), U10, U11. |
+| U12 | MVP audio player | **not started** | Blocked on U10, U11. Audio URL behavior fully verified — permanent CDN paths with range support; no re-signing route, no embed wrapper fallback. |
 | U13 | Feedback bar | **not started** | Blocked on U5, U11, U12. |
 
 ### What's blocked on the user
 
-1. **U1 empirical tests** — run live Particle API calls from a terminal (entity slug lookups, audio URL HEAD request, catalog hit-rate check, segment length sampling). ~30–60 min. Not blocking U5–U9 code work; needed before first real ingest run.
-2. **U4 DNS** — add Vercel DNS records at the `podiumsports.app` registrar. ~5 min. Only needed for production deploy.
-3. **Vercel env vars** — mirror `.env.local` values into Vercel project settings (Production → prod Supabase keys; Preview → staging keys). Needed for deploys, not local dev.
+1. **U4 DNS** — add Vercel DNS records at the `podiumsports.app` registrar. ~5 min. Only needed for production deploy.
+2. **Vercel env vars** — mirror `.env.local` values into Vercel project settings (Production → prod Supabase keys; Preview → staging keys). Needed for deploys, not local dev.
+3. **Particle dashboard credit-weight inspection** — read per-call credit cost for `standard` and `premium` tiers from the dashboard before the first non-dev-mode run. ~5 min. Not blocking U5–U9 code work.
 
 ---
 

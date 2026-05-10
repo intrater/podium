@@ -2,7 +2,7 @@
 date: 2026-05-09
 topic: particle-cost-model-and-budget-estimate
 applicability: U7 client cost telemetry, U8 ingestion pipeline, U1 cost dry-run, plan Risks & Mitigations
-status: pricing model verified from docs; specific credit-per-call rates pending dashboard inspection
+status: pricing model verified from docs; rate limits confirmed from live API (10k/min); specific credit-per-call rates still pending dashboard inspection
 plan-ref: docs/plans/2026-05-09-001-feat-podium-v1-49ers-digest-plan.md
 sibling-docs:
   - docs/solutions/2026-05-09-particle-api-shape.md
@@ -198,3 +198,19 @@ The plan's contingency H (worst-case cost > 50% credit) is now expressible:
 - The user sees exact cost per run in `api_calls` and can make an informed plan decision (Starter vs Growth) based on observed spend after the first week.
 
 This finding does not require a structural plan revision — the plan's existing accommodations (price table, pre-flight gate, dev mode, cost telemetry) all hold; they just need to be tier-aware. Worth a brief note in U7 + U8 when /ce-work executes them.
+
+---
+
+# Round 2 update: rate limits and header inspection (2026-05-10)
+
+Live verification against the API confirmed:
+
+- **Rate limit: 10,000 requests/minute** (per `x-ratelimit-limit` header on every endpoint tested). The Round 1 doc-based assumption of 1,000/min was conservative by 10×. **Daily-run headroom is enormous** — a worst-case daily spend of ~270 calls is 0.045% of one minute's ceiling.
+- **No credit/spend info is exposed in HTTP response headers.** Only rate-limit headers are present (`x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-reset`). Cost tracking is therefore entirely client-side via the price table in `lib/particle/tracked-call.ts`. The dashboard remains the sole source of truth for credit balance.
+- **`/v1/organizations` and `/v1/me` style endpoints exist (401 vs 404 split) but require organization-owner JWT auth** — the API key is insufficient. In-app credit-balance display is therefore **not feasible in v1** without a separate auth mechanism. Acceptable: the user has the dashboard for balance checks.
+
+These findings reinforce the existing plan, with one minor refinement:
+
+**Refined rate-limit handling for U7:** since the daily spend is well under 1% of the per-minute ceiling, **a complex token-bucket/backoff layer is overkill**. A simple "log the headers; respect Retry-After on 429s" implementation is sufficient. Document this in U7's client.
+
+**Open question still deferred:** per-call credit weights for `standard` vs `premium` tiers. Still needs a dashboard inspection. Not blocking U5–U9 code work — the price table can be a stub with sensible placeholders during development; populated accurately before the first non-dev-mode run.

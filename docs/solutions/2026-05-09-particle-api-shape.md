@@ -2,7 +2,7 @@
 date: 2026-05-09
 topic: particle-api-shape-verification
 applicability: U1 verification, U7 client implementation, U8 ingestion pipeline, U12 audio player
-status: docs verified; live-API empirical tests pending laptop session
+status: docs + live-API empirical verification complete
 plan-ref: docs/plans/2026-05-09-001-feat-podium-v1-49ers-digest-plan.md
 ---
 
@@ -182,3 +182,182 @@ With the docs-verification half of U1 complete, the plan can move forward more c
 - **Phase D** (UI): the MVP audio player can be built knowing the audio URL field exists; the v2 word-level evolution has a documented data path.
 
 The plan does not need a structural revision based on these findings — it accommodated the unknowns through explicit contingencies. Now ~half of those contingencies have collapsed to a known answer; the other half remain pending laptop verification.
+
+---
+
+# Round 2: Live API verification (2026-05-10)
+
+All six remaining empirical questions from Round 1 resolved via live calls against `https://api.particle.pro` from the project sandbox (sandbox network reaches the host, so no laptop hand-off needed). Test scripts and raw response samples were transient (run from `$TMPDIR/particle/`); findings persist below.
+
+## Headline
+
+**Every contingency cleared or downgraded.** No structural plan revision required. Two findings warrant minor unit-level updates flagged below.
+
+## Findings
+
+### 4 (revisited). Audio URL signing / TTL / Accept-Ranges — CONTINGENCIES C AND D CLEARED
+
+Tested HEAD + ranged GET against a real `audio_url` returned by `/v1/podcasts/clips/{id}`.
+
+- **URL shape:** `https://cdn.particle.pro/podcast/episode/{episode-uuid}/clip/audio/{clip-uuid}.mp3`. **No query string, no signature, no token.** Permanent CDN paths.
+- **Underlying storage:** Google Cloud Storage (`x-goog-*` headers visible). Particle proxies a `cdn.particle.pro` hostname over it.
+- **Cache behavior:** `cache-control: public, max-age=31536000` (1 year). Aggressive caching — clips are immutable once published.
+- **Range support:** `accept-ranges: bytes` confirmed; ranged GET (`Range: bytes=0-99`) returned `HTTP 206 Partial Content` with the right slice. **HTTP range seeking works.**
+- **HTTP/2 + HTTP/3** advertised (`alt-svc: h3=":443"`).
+- **Implication for U12:** the custom audio player can rely on a permanent URL stored in `segments.audio_url`, support seek-past-buffered-position via range requests, and skip any server-side re-signing route. **Contingency C downgrade:** the `app/api/clips/[id]/audio/route.ts` re-signing route is no longer needed for v1. **Contingency D fully cleared.**
+
+### 5 (revisited). Entity coverage — CONTINGENCY E CLEARED
+
+Tested 15 49ers names spanning starters, coaches, GM, owner, and the team itself against `/v1/entities?q=...`.
+
+| | |
+|---|---|
+| Coverage rate | **15/15 = 100%** |
+| Predicted-slug accuracy (where covered) | **15/15 = 100%** |
+
+Slug rule confirmed: `name.toLowerCase().replace(/'/g,'').replace(/\./g,'').replace(/\s+/g,'-')`. Examples:
+
+- Brock Purdy → `brock-purdy`
+- Christian McCaffrey → `christian-mccaffrey`
+- San Francisco 49ers → `san-francisco-49ers`
+- Jauan Jennings → `jauan-jennings`
+- Robert Saleh → `robert-saleh`
+
+**Implication for U6:** seed the niners universe with **direct predicted slugs** — no name-fallback list needed in v1. The `nameFallbacks` field in the universe schema can stay (cheap insurance) but is empty for the niners. Skip the runtime slug-resolution startup script unless we discover misses on the broader roster.
+
+**Bonus finding from `/v1/entities` shape:** entity records include `id`, `slug`, `name`, `description`, optional `wikipedia_url`, `image_url`. The description field carries useful disambiguation copy ("American football quarterback", "Brock Purdy's mother"). Fuzzy queries return related entities (querying "Brock Purdy" also surfaces his parents, which appear as separate Particle entities — relevant only as noise to filter, not as a coverage problem).
+
+### 6 (revisited). Segment boundary granularity — CONTINGENCY F CLEARED
+
+Sampled 20 segments via `/v1/podcasts/search?keyword_search=49ers&limit=20`.
+
+| Statistic | Segment duration |
+|---|---|
+| min | 35.9s |
+| p25 | 82.4s |
+| **median** | **118.4s (~2 min)** |
+| p75 | 175.6s |
+| max | 618.5s (~10 min) |
+| mean | 158.0s |
+
+Segments are **focused, topic-level chunks with descriptive titles** ("Cowboys vs. 49ers: Different Roads, Same End", "Mike Evans to 49ers: win-now move", "Setting the draft table: WR priority and Round 1 question"). Not 30-minute slabs. Clip-within-segment durations are even tighter (median 45s) — clips are the quote-level highlights inside the segment.
+
+**Implication for U9 (summarization):** the prompt can summarize the segment as-is without "extract only the 49ers-relevant portion" gymnastics. The boundary is already topical. Saves prompt tokens and improves quality.
+
+**Implication for U11 (card rendering):** "8 minutes across 3 segments" is a realistic display claim — 3× ~2-min segments aligns with the median. Cards will typically show 2–5 segments per episode in the niners domain.
+
+### 7. Curated catalog hit rate — CONTINGENCY G PARTIAL (no pivot needed)
+
+Sampled 12 candidate sports podcasts via `/v1/podcasts?q=...`. Hit rate **8/12 = 67%**.
+
+| Hit | Query | Catalog slug |
+|---|---|---|
+| ✓ | Locked On 49ers | `locked-on-49ers` |
+| ✓ | The Mina Kimes Show | `the-mina-kimes-show` |
+| ✓ | Pat McAfee Show | `the-pat-mcafee-show` |
+| ✓ | Pardon My Take | `pardon-my-take` |
+| ✓ | PFT Live | `pft-live` |
+| ✓ | The Bill Simmons Podcast | `the-bill-simmons` |
+| ✓ | The Athletic Football Show | `the-athletic-football-show` |
+| ✓ | The Ringer NFL Show | `the-ringer-nfl-show` |
+| ✗ | Niners Nation | (not in catalog under any spelling) |
+| ✗ | 49ers Webzone | (not in catalog) |
+| ✗ | Talkin' Niners | (not in catalog) |
+| ✗ | ESPN Daily | (not in catalog) |
+
+**Catalog coverage of 49ers content is broader than the misses suggest.** A query for `49ers` returned seven additional 49ers-relevant shows we hadn't explicitly probed:
+
+- `49ers-talk` — 49ers Talk: A San Francisco 49ers Podcast
+- `the-gold-standard` — The Gold Standard: San Francisco 49ers Podcast Network
+- `section-415` — Section 415
+- `knbr` — KNBR Podcast
+- `the-krueg-show` — The Krueg Show
+- `the-leeds-view-podcast-and-news` — The Leeds View Podcast and News (multi-team, includes 49ers)
+
+**Implication for U6:** the curated 31-podcast list defines itself **from the catalog**, not from a wishlist. Misses (Niners Nation, Webzone) are niche fan-blog shows — Locked On 49ers + 49ers Talk + The Gold Standard + Section 415 cover the same daily-49ers-show role. **Contingency G plan pivot is NOT triggered** — curated surface remains primary.
+
+**Action item flagged for U6:** before defining the final list, run a `/v1/podcasts?q=...` sweep for each candidate, drop misses, swap in catalog-resident equivalents. This is a 5-minute sweep at U6 start.
+
+### 8 (revisited). Cost dry-run + rate-limit confirmation — CONTINGENCY H DOWNGRADED
+
+Live response headers confirm:
+
+- **Rate limit: 10,000 requests/minute** (per `x-ratelimit-limit`). **10× higher than the conservative 1,000/min assumption from docs round.** Daily-run headroom is enormous.
+- **No credit/spend info exposed in response headers.** Cost tracking must be client-side via the price table in `lib/particle/tracked-call.ts`. Dashboard is sole source of truth for credit balance.
+- **`/v1/organizations` returns 401** — the billing endpoints exist but require organization-owner JWT auth, not the API key. This isn't a path forward for in-app credit-balance display in v1.
+
+The 50-page-or-so daily call budget (~67 base + 50–200 segment-detail calls = ~120–270 total) consumes 3% of one minute's rate-limit ceiling. Rate limits will not constrain anything in v1.
+
+**Cost dry-run remains nominal until per-call credit weights are confirmed in the dashboard** (separate task, not blocking U5–U9 code work). The plan's cost-conscious mitigations (dev mode, pre-flight gate, payment method gate before first prod run, 402 handler) all still apply unchanged.
+
+### Bonus: actual response shapes (refining U7 + U5 schema)
+
+The Round 1 doc captured the response shape from documentation; the live shape adds detail and a few field names that should flow into `lib/particle/types.ts` and the U5 schema:
+
+**`GET /v1/podcasts/search` response (top-level):**
+```
+{
+  data: SearchResult[],
+  has_more: boolean,
+  cursor: string  // opaque continuation token; pass back as ?cursor=...
+}
+
+SearchResult = {
+  episode: { id, slug, title, published_at, podcast: { id, title, slug, image_url } }
+  segment: { id, episode, number, type, title, description, summary,
+             start_seconds, end_seconds, duration_seconds, audio_url }
+  clips:   Clip[]            // notable-line / quote-level extracts
+  windows: Window[]          // keyword-match windows with line-level transcript
+  match:   { source, relevance_score }
+}
+
+Clip = {
+  id, episode, segment, type, title, description, intro_statement,
+  engagement_score, speaker: { name, role },
+  start_seconds, end_seconds, duration_seconds, audio_url
+}
+
+Window = {
+  start_seconds, end_seconds,
+  lines: [{ number, speaker, role, start_seconds, end_seconds, text, is_match? }]
+}
+```
+
+**Critical detail not in Round 1 doc:** the `segment` object **already carries `audio_url`** at the segment level. Previously the plan assumed audio_url lived on the clip only. This is significant: U8 ingestion can store `segment.audio_url` directly into `segments.audio_url`, and U12's player can use it without an extra fetch. Clips are a subset (highlight quotes); segments are the natural card-row unit and they already have audio.
+
+**`speaker.role` enum observed:** `PANELIST`, `HOST` (and likely others — should be typed as `string` and not enum-locked in v1). Worth surfacing on segments when present (helps the digest copy: "Mina Kimes said…" reads better than "speaker said…").
+
+**`segment.type` enum observed:** `TOPIC_DISCUSSION`, `INTERVIEW`. Likely also `MONOLOGUE`, `Q_AND_A`, others. Type as `string` in v1.
+
+**`clip.type` enum observed:** `NOTABLE_LINE`. Other values likely exist.
+
+**Match metadata:** `match.source` is `"keyword"` for keyword search; `"semantic"` for semantic; `"entity"` for mention search. Worth persisting on `segments` so we know how each was surfaced (debugging + potential future UI badge).
+
+## Plan-unit updates
+
+Based on Round 2, **two units gain small refinements**:
+
+### U5 schema refinement
+- `segments.audio_url` is **populated at ingestion time** (always), not derived from clip lookup. Already in the plan but worth re-reading the column definition with this confirmed.
+- Add `segments.match_source text` (values: `keyword | semantic | entity`) for surfacing-method debugging.
+- Add `segments.speaker_name text` and `segments.speaker_role text` (both nullable) for use in card copy and pull-quote attribution.
+
+### U6 universe seed
+- Predicted slugs are confirmed correct for 49ers — no startup slug-resolution script needed. Universe config is just data.
+- The 31-podcast curated list **must be defined against the live catalog**. 5-minute sweep at U6 start: query each candidate, drop misses, swap equivalents. Document the final list in `config/podcasts.ts` with `particle_slug` filled in (no nullable nulls — only catalog-resident shows make the list in v1).
+
+### U7 client + types
+- `lib/particle/types.ts` reflects the actual response shape above (segment carries audio_url; cursor pagination; speaker on clips and surfaceable on segments).
+- Cursor-based pagination implemented as documented. `cursor` is an opaque string; pass it back via `?cursor=...`.
+- Rate-limit headers (`x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-reset`) are read but rarely actionable at our scale; log them in `api_calls.metadata` for posterity.
+
+### U12 player
+- Permanent CDN URLs + range-request support means: **no server-side re-signing route**, **no proactive refresh logic**, **client-side seek works.** Player is straightforward HTML5 `<audio>` + Tailwind chrome + segment-level highlight ticker driven by `timeupdate` events. Contingency A (`<particle-podcast-clip>` embed wrapper) is fully retired — the doc-round had already cleared it; live verification re-confirms.
+
+## What remains (deferrable)
+
+- **Per-call credit weights** for `standard` and `premium` tiers — only available in the Particle dashboard. Not blocking U5–U9 code; needed before the first non-dev-mode run to populate `lib/particle/tracked-call.ts` price table accurately. **User dashboard task, ~5 minutes.**
+- **Word-level transcript live test** — deferred to v2 player work; not needed for v1 segment-level highlight.
+- **Seed-window cost dry-run with real numbers** — depends on the credit weights above. Until then, dev-mode caps spend.
+
+All of the above are explicit U1 contingencies that were already deferred in the plan. Round 2 doesn't add new blockers.

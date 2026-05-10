@@ -49,3 +49,6 @@ next-env.d.ts
 docs/particle/
 # Supabase seed (contains real user UUIDs — local only; commit seed.sql.example template)
 supabase/seed.sql
+# Supabase CLI scratch state
+supabase/.temp/
+supabase/.branches/
