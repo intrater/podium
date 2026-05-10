@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (post-U5 follow-ups; pre-U6 residuals resolved)
+Last updated: 2026-05-10 (U6 landed; residual #17 resolved alongside)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -195,8 +195,8 @@ Last updated: 2026-05-10 (post-U5 follow-ups; pre-U6 residuals resolved)
 | U3 | Env, secrets, Supabase projects | **done** | `lib/env.ts`, `.env.local.example`, setup walkthrough, `.env.local` populated, build verified. Vercel env vars pending (needed for deploy, not local dev). |
 | U4 | Domain → Vercel | **not started** | User adds DNS records at registrar. Only needed for production deploy. |
 | **Phase B — Data layer** | | | |
-| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0007 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. ce-code-review pass landed 7 follow-up fixes (commit `31ce6ba`); pre-U6 residuals (#1, #2, #5) landed in the U5 follow-up bundle plus six review-driven hardening fixes (vi.stubEnv, positive-path RLS test, db-reset warning, …) — see "Residual review findings (U5 follow-up)" below for what remains. |
-| U6 | Niners universe + seed | **next** | Unblocked. Predicted slugs confirmed 100% accurate for 49ers — universe is just data, no startup resolution script. Curated 31-podcast list defined against live catalog (5-min sweep). |
+| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0008 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. ce-code-review pass landed 7 follow-up fixes (commit `31ce6ba`); pre-U6 residuals (#1, #2, #5) landed in the U5 follow-up bundle plus six review-driven hardening fixes — see "Residual review findings (U5 follow-up)" below for what remains. |
+| U6 | Niners universe + seed | **done** | `config/podcasts.ts` (31 catalog-resident podcasts; 7 team-specific + 24 national), `config/teams.ts` (49ers OKLCH palette), `lib/universes/49ers.ts` (30 verified entity slugs + 8 storylines), `lib/seed/index.ts` (idempotent runner), `scripts/seed-supabase.ts` (`npm run seed`), tests covering schema validity, slug pattern, kind thresholds, and live-DB idempotency. Migration `0008_universes_team_id_unique.sql` added UNIQUE(team_id) so concurrent seed runs can't insert duplicate universe rows (resolves residual #17). |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **not started** | Blocked on U5 (`api_calls` table). Response shape now fully verified; rate-limit handling can be simple (10k/min ceiling). |
 | U8 | Daily ingestion worker | **not started** | Blocked on U6, U7, U9. |
@@ -241,7 +241,7 @@ ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`.
 - #12 — Vitest preflight cleanup of stale `rls-test-%` rows older than 1 hour (live-DB tests leak on SIGKILL)
 - #13 — Document teams↔universes circular FK seed order (or do it in U6's seeding script)
 - #14 — `0000_reset.sql` permanently in history is a project-ref footgun (consider archiving after first deploy)
-- #17 — UNIQUE on `universes.team_id` (prevents orphan accumulation if seeding glitches)
+- ✅ #17 — UNIQUE on `universes.team_id` landed in migration `0008` alongside U6 (the seed runner needs it for the lookup-then-insert race window).
 - #18 — Plan-required EXPLAIN sanity test on `cards (user_id, surfaced_at desc)`
 - #22, #23 — `cascade` qualifier in 0005 + missing `IF NOT EXISTS` in 0001. Both edit already-applied migrations; skipped to avoid migration-history drift; documented as an accepted trade-off.
 - #24 — `ingest_jobs.podcast_ids uuid[]` has no FK integrity (Postgres limitation; alternative is a child table)

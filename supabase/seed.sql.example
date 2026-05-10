@@ -1,0 +1,56 @@
+-- Podium v1 — seed template (documentation).
+--
+-- This file documents the SQL the seed script applies. The actual seeding
+-- runs via `scripts/seed-supabase.ts`, which uses `@supabase/supabase-js`
+-- against the live project — that path handles `auth.users` insertion via
+-- the admin Auth API rather than raw INSERT. The file kept here is a
+-- human-readable reference of what lands in the database.
+--
+-- Tokens:
+--   __PODIUM_USER_ID__   — the configured PODIUM_USER_ID env value
+--
+-- The script is idempotent (`on conflict do nothing` everywhere); running
+-- this template manually via psql is therefore safe to re-run, but only
+-- after the auth user already exists. Prefer the script.
+
+-- Auth user is created via Supabase Auth admin API by the script.
+-- (No SQL counterpart here — direct INSERT into auth.users bypasses Auth.)
+
+-- Team row.
+insert into teams (id, sport, slug, name, palette)
+values (
+  '49ers',
+  'nfl',
+  'san-francisco-49ers',
+  'San Francisco 49ers',
+  jsonb_build_object(
+    'primary',   'oklch(0.51 0.18 27)',
+    'secondary', 'oklch(0.66 0.06 80)',
+    'onPrimary', 'oklch(1 0 0)'
+  )
+)
+on conflict (id) do nothing;
+
+-- Universe row (one per team — entities + storylines defined in
+-- lib/universes/<team>.ts).
+insert into universes (team_id, entities, storylines)
+values (
+  '49ers',
+  '[/* entity slugs from lib/universes/49ers.ts */]'::jsonb,
+  '[/* storyline strings from lib/universes/49ers.ts */]'::jsonb
+)
+on conflict do nothing;
+
+-- Link team → universe (universes.id is generated; the script reads it back
+-- and runs the update with the actual UUID).
+update teams
+   set universe_id = (select id from universes where team_id = '49ers' limit 1)
+ where id = '49ers'
+   and universe_id is null;
+
+-- Curated podcast catalog (one row per entry in config/podcasts.ts).
+-- The script generates one INSERT per podcast; example shape:
+insert into podcasts (particle_slug, name, kind, in_catalog)
+values ('locked-on-49ers', 'Locked On 49ers', 'team-specific', true)
+on conflict (particle_slug) do nothing;
+-- ... (30 more rows)
