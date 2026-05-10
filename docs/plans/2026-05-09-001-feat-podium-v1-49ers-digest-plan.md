@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (U8 Node-side end-to-end verified live; Edge Function + cron pending)
+Last updated: 2026-05-10 (U8 done — Vercel Cron approach replaces Edge Function plan)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -199,7 +199,7 @@ Last updated: 2026-05-10 (U8 Node-side end-to-end verified live; Edge Function +
 | U6 | Niners universe + seed | **done** | `config/podcasts.ts` (31 catalog-resident podcasts; 7 team-specific + 24 national), `config/teams.ts` (49ers OKLCH palette), `lib/universes/49ers.ts` (30 verified entity slugs + 8 storylines), `lib/seed/index.ts` (idempotent runner), `scripts/seed-supabase.ts` (`npm run seed`), tests covering schema validity, slug pattern, kind thresholds, and live-DB idempotency. Migration `0008_universes_team_id_unique.sql` added UNIQUE(team_id) so concurrent seed runs can't insert duplicate universe rows (resolves residual #17). |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **done** | `lib/particle/{types,tracked-call,client,cost-estimate}.ts` plus 9 contract snapshots and 65 unit tests. Hardcoded per-endpoint tier mapping (search/mentions/clip/transcripts = premium; list endpoints = standard). Retry policy covers 408/429/5xx; 401 + 422 are terminal; AbortSignal short-circuits; default 30s timeout per attempt. **NEW finding for U8:** Particle's mentions endpoint requires `entity_id` (NOT slug), and list-episodes requires `podcast_id` (NOT slug). The U6 universe + podcasts ship as slugs only; U8 must resolve slug→id at worker startup via `listEntities` and `listPodcasts`, and cache the IDs (either in-memory per-run or by adding columns in a follow-up migration). |
-| U8 | Daily ingestion worker | **Node-side complete; Edge Function pending** | `lib/ingest/{types,pipeline,run}.ts` + `app/api/ingest/{route,status/route}.ts` + 18 unit tests. Pipeline runs end-to-end against live Particle + live Anthropic — verified via `npm run dev` + `curl POST /api/ingest`: 2 episodes, 18 segments, 2 cards persisted in 185s ($0.97 estimated). Episode summaries are substantive and accurate (e.g., "facing a looming cap crisis in 2028 with only $8.5 million in space and major contracts for Purdy and Nick Bosa"). Off-topic filtering rejected 17/35 segments correctly. Migration `0011_cards_episode_summary.sql` adds the `episode_summary` column populated by the rollup. Still pending for full daily-worker: sharded orchestration via `ingest_jobs`, Deno Edge Function mirror at `supabase/functions/daily-digest/`, and the `pg_cron` schedule (next session). |
+| U8 | Daily ingestion worker | **done** | `lib/ingest/{types,pipeline,run}.ts` + `app/api/ingest/{route,status/route}.ts` + `app/api/cron/daily-digest/route.ts` + `vercel.json` cron schedule (6am ET daily) + 21 unit tests. Pipeline verified end-to-end against live APIs (2 episodes, 18 segments, 2 cards in 185s; $0.97). Bounded segment-level concurrency (5 parallel) keeps full-catalog runs inside Vercel's 300s window. **Architecture note:** the plan originally called for a Deno Edge Function + pg_cron + sharded orchestration via ingest_jobs to leverage Supabase's 150s budget. We landed on Vercel Cron instead — Vercel Pro's 300s window plus segment concurrency fits the v1 daily run cleanly, and the Deno mirror would have duplicated hundreds of lines of pipeline code we'd otherwise maintain. If a future scale-up exceeds 300s, the path forward is sharding inside the Vercel handler, not a runtime swap. |
 | U9 | Claude Haiku summarization | **done** | `lib/anthropic/{client,summarize,summarize-episode,types}.ts` plus `prompts/segment-summary.ts` system prompt and 80 unit tests. Forced tool use (`submit_segment_analysis`) for structured output, zod validation, quote-fidelity check (with curly→straight normalization), single retry via tool_result block on schema/fidelity errors, returns null on transient errors or after exhausted retries. Per-call cost telemetry includes separated cache_read/cache_creation tokens at the discounted rate. SDK timeout pinned to 30s. |
 | **Phase D — Design & UI** | | | |
 | U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
@@ -210,8 +210,9 @@ Last updated: 2026-05-10 (U8 Node-side end-to-end verified live; Edge Function +
 ### What's blocked on the user
 
 1. **U4 DNS** — add Vercel DNS records at the `podiumsports.app` registrar. ~5 min. Only needed for production deploy.
-2. **Vercel env vars** — mirror `.env.local` values into Vercel project settings (Production → prod Supabase keys; Preview → staging keys). Needed for deploys, not local dev.
-3. **Particle dashboard credit-weight inspection** — read per-call credit cost for `standard` and `premium` tiers from the dashboard before the first non-dev-mode run. ~5 min. Not blocking U5–U9 code work.
+2. **Vercel env vars** — mirror `.env.local` values into Vercel project settings before deploy. Includes `CRON_SECRET` — Vercel Cron uses it to authenticate the scheduled `/api/cron/daily-digest` calls automatically.
+3. **First Vercel deploy** — Vercel Cron only fires against deployed code; the schedule in `vercel.json` is inert until the first push. The cron is set to `0 11 * * *` (6am ET / 11am UTC) so the first scheduled run lands the morning after deploy.
+4. **Particle dashboard credit-weight inspection** — read per-call credit cost for `standard` and `premium` tiers from the dashboard before the first non-dev-mode run. ~5 min. Not blocking U5–U9 code work.
 
 ### Residual review findings (U5 follow-up)
 

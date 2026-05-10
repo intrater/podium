@@ -40,6 +40,7 @@ import type {
 
 const PARTICLE_PAGE_LIMIT = 25;
 const PARTICLE_MAX_PAGES = 4;
+const SEGMENT_CONCURRENCY = 5;
 
 interface NormalisedSegment {
   episodeId: string;
@@ -122,13 +123,18 @@ export async function runIngestPipeline(
 
   if (fresh.length === 0) return out;
 
-  // 5. For each fresh segment, fetch transcript + summarize. Group by episode.
-  const byEpisode = new Map<string, {
-    episode: ParticleEpisode;
-    segments: Array<{ raw: NormalisedSegment; summary: SegmentSummary | null; transcript: string }>;
-  }>();
-
-  for (const item of fresh) {
+  // 5. For each fresh segment, fetch transcript + summarize. Bounded
+  //    concurrency so the wall time stays well inside the Vercel 300s
+  //    budget at full catalog (31 podcasts) — at concurrency=5 a typical
+  //    daily run of ~150 candidate segments completes in ~150s with
+  //    headroom. Higher concurrency would risk Anthropic rate-limit
+  //    bursts; lower would leave money on the table.
+  type SegmentResult = {
+    item: NormalisedSegment;
+    summary: SegmentSummary | null;
+    transcript: string | null;
+  };
+  const segmentResults = await mapWithConcurrency(fresh, SEGMENT_CONCURRENCY, async (item) => {
     out.particleCallsAttempted += 1;
     let transcript: ParticleEpisodeTranscript;
     try {
@@ -142,10 +148,12 @@ export async function runIngestPipeline(
         `pipeline: transcript fetch failed for segment ${item.segment.id}:`,
         err instanceof Error ? err.message : String(err),
       );
-      continue;
+      return { item, summary: null, transcript: null } satisfies SegmentResult;
     }
     const transcriptText = transcript.lines.map((line) => line.text).join(" ").trim();
-    if (!transcriptText) continue;
+    if (!transcriptText) {
+      return { item, summary: null, transcript: null } satisfies SegmentResult;
+    }
 
     out.anthropicCallsAttempted += 1;
     const summary = await summarizeSegment(deps.anthropic, {
@@ -159,22 +167,29 @@ export async function runIngestPipeline(
       },
     });
 
-    if (summary === null) {
-      // The summarizer either marked it off-topic or exhausted retries.
-      // The worker can't tell which without a richer return type; both
-      // cases drop the segment from card surfaces. Track separately for
-      // now via heuristic: presence of pull_quotes-shaped output would
-      // indicate retry-exhaustion (the model tried). v1 conflates them.
+    return { item, summary, transcript: transcriptText } satisfies SegmentResult;
+  });
+
+  const byEpisode = new Map<string, {
+    episode: ParticleEpisode;
+    segments: Array<{ raw: NormalisedSegment; summary: SegmentSummary; transcript: string }>;
+  }>();
+  for (const result of segmentResults) {
+    if (result.summary === null) {
       out.segmentsRejectedOffTopic += 1;
       continue;
     }
-
-    const bucket = byEpisode.get(item.episodeId) ?? {
-      episode: item.episode,
+    if (result.transcript === null) {
+      // Transcript fetch failed; segment is dropped silently. Already
+      // logged at the source.
+      continue;
+    }
+    const bucket = byEpisode.get(result.item.episodeId) ?? {
+      episode: result.item.episode,
       segments: [],
     };
-    bucket.segments.push({ raw: item, summary, transcript: transcriptText });
-    byEpisode.set(item.episodeId, bucket);
+    bucket.segments.push({ raw: result.item, summary: result.summary, transcript: result.transcript });
+    byEpisode.set(result.item.episodeId, bucket);
   }
 
   // 6. Persist per episode (one logical transaction worth of writes).
@@ -370,6 +385,29 @@ async function filterAlreadyPersisted(
   }
   const persisted = new Set((existing ?? []).map((row) => row.particle_segment_id));
   return items.filter((i) => !persisted.has(i.segment.id));
+}
+
+/**
+ * Bounded-concurrency map over an array. Used for per-segment transcript
+ * fetch + summarize so wall time stays within the route's max-duration
+ * budget without flooding upstream rate limits.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 async function resolveLocalPodcastId(
