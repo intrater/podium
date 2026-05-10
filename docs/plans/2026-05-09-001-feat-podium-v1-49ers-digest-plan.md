@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (U7 landed)
+Last updated: 2026-05-10 (U7 + U9 landed)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -199,8 +199,8 @@ Last updated: 2026-05-10 (U7 landed)
 | U6 | Niners universe + seed | **done** | `config/podcasts.ts` (31 catalog-resident podcasts; 7 team-specific + 24 national), `config/teams.ts` (49ers OKLCH palette), `lib/universes/49ers.ts` (30 verified entity slugs + 8 storylines), `lib/seed/index.ts` (idempotent runner), `scripts/seed-supabase.ts` (`npm run seed`), tests covering schema validity, slug pattern, kind thresholds, and live-DB idempotency. Migration `0008_universes_team_id_unique.sql` added UNIQUE(team_id) so concurrent seed runs can't insert duplicate universe rows (resolves residual #17). |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **done** | `lib/particle/{types,tracked-call,client,cost-estimate}.ts` plus 9 contract snapshots and 65 unit tests. Hardcoded per-endpoint tier mapping (search/mentions/clip/transcripts = premium; list endpoints = standard). Retry policy covers 408/429/5xx; 401 + 422 are terminal; AbortSignal short-circuits; default 30s timeout per attempt. **NEW finding for U8:** Particle's mentions endpoint requires `entity_id` (NOT slug), and list-episodes requires `podcast_id` (NOT slug). The U6 universe + podcasts ship as slugs only; U8 must resolve slug→id at worker startup via `listEntities` and `listPodcasts`, and cache the IDs (either in-memory per-run or by adding columns in a follow-up migration). |
-| U8 | Daily ingestion worker | **next** | Unblocked on U7. Still needs U9 to land first per the dependency chain. Note the slug→id resolution work flagged above. |
-| U9 | Claude Haiku summarization | **next** | Unblocked on U7 (segment shape now typed in `lib/particle/types.ts`). Segment boundaries are topical (median ~2 min) — prompt does not need "extract relevant portion" gymnastics. |
+| U8 | Daily ingestion worker | **next** | Unblocked. Note the slug→id resolution work flagged below. |
+| U9 | Claude Haiku summarization | **done** | `lib/anthropic/{client,summarize,summarize-episode,types}.ts` plus `prompts/segment-summary.ts` system prompt and 80 unit tests. Forced tool use (`submit_segment_analysis`) for structured output, zod validation, quote-fidelity check (with curly→straight normalization), single retry via tool_result block on schema/fidelity errors, returns null on transient errors or after exhausted retries. Per-call cost telemetry includes separated cache_read/cache_creation tokens at the discounted rate. SDK timeout pinned to 30s. |
 | **Phase D — Design & UI** | | | |
 | U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
 | U11 | Digest card grid | **not started** | Blocked on U5, U10. |

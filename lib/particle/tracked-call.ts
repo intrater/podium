@@ -277,17 +277,24 @@ async function logCall(
     if (remaining !== null) metadata.rate_limit_remaining = Number(remaining);
     if (reset !== null) metadata.rate_limit_reset = Number(reset);
   }
-  // Best-effort: a Supabase write failure (network blip, transport error)
-  // must never replace the actual Particle outcome the caller is waiting on.
+  // Best-effort: a Supabase write failure (network blip, transport error,
+  // RLS rejection returning {error}) must never replace the actual
+  // Particle outcome the caller is waiting on. Both the throw path and
+  // the {error} return path are caught and logged to console.
   try {
-    await opts.supabase.from("api_calls").insert({
+    const { error } = await opts.supabase.from("api_calls").insert({
       provider: "particle",
       endpoint: opts.endpoint,
       tier: opts.tier ?? "standard",
       cost_usd: costUsd,
       metadata,
     });
+    if (error) {
+      console.error(
+        `api_calls insert failed for particle/${opts.endpoint}: ${error.message}`,
+      );
+    }
   } catch (err) {
-    console.error(`api_calls insert failed for ${opts.endpoint}:`, errorMessage(err));
+    console.error(`api_calls insert threw for particle/${opts.endpoint}:`, errorMessage(err));
   }
 }
