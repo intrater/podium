@@ -73,4 +73,4 @@ The user is **John Intrater**, a designer building Podium solo. He is **not an e
 1. `git pull --rebase origin main` (the user works across machines).
 2. `git status` is clean.
 3. `npm install` is current (run if `package-lock.json` changed since last session).
-4. `.env.local` exists locally (gitignored — must be recreated on each new machine; see `docs/solutions/2026-05-09-env-and-secrets-setup.md`).
+4. `.env.local` exists locally — gitignored, but Vercel is the source of truth. To populate (or refresh) on any machine: `vercel link` (one-time per machine) then `vercel env pull .env.local`. See `docs/solutions/2026-05-09-env-and-secrets-setup.md` for the full flow including the new-machine onboarding script.

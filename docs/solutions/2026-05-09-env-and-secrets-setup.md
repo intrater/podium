@@ -98,10 +98,36 @@ Use the staging Supabase project's values for local dev. The `.env.local` file i
 
 ## Step 6 — Mirror env vars into Vercel
 
-1. Visit your Vercel project → **Settings → Environment Variables**.
-2. For **Production** environment, add every variable from `.env.local`, but use the **prod** Supabase project's values (URL, anon key, service role key, JWT secret), and set `INGEST_DEV_MODE=false`.
-3. For **Preview** environment, mirror the **staging** Supabase values + `INGEST_DEV_MODE=true`.
-4. Verify which environment scope is selected for each variable (Production / Preview / Development) — get this wrong and a deploy will pull the wrong values.
+**Status (2026-05-10):** done. The Vercel project `john-intraters-projects/podium` exists and holds every variable from `.env.local` for both **Production** and **Development** environments. **Preview** is intentionally empty — Vercel CLI 53.3.1 has a bug rejecting its own documented "all preview branches" command; populate via the dashboard UI when PR previews actually matter (defer until the deploy unit).
+
+If you need to re-populate from scratch (e.g., a key rotated):
+
+1. From the project root: `vercel env rm <KEY> production --yes` then `printf "%s" "<value>" | vercel env add <KEY> production` for each var, or
+2. Use the Vercel dashboard at vercel.com → podium project → Settings → Environment Variables.
+
+For the original v1 path (skipped — single Supabase project means staging and prod share values): use the **prod** Supabase values for Production and the **staging** values for Preview, with `INGEST_DEV_MODE` set per environment.
+
+## Step 6b — Onboard a new machine (the easy path)
+
+Since Vercel holds every secret, onboarding a new machine is now a script, not a manual data-entry session.
+
+```sh
+# Prerequisites: brew install git node supabase/tap/supabase
+git clone https://github.com/intrater/podium.git
+cd podium
+npm install
+npm i -g vercel
+vercel login          # browser flow; sign in to your personal Vercel account
+vercel link           # pick the existing john-intraters-projects/podium project
+vercel env pull .env.local   # populates .env.local from Vercel's encrypted store
+supabase login
+supabase link --project-ref fszzncbglomjtsardyej
+npm run lint && npm run build && npm test
+```
+
+If all three of `lint`, `build`, and `test` complete without errors (and `npm test` reports `Tests 10 passed`), the machine is fully synced. No `.env.local` editing, no AirDrop, no copy-paste.
+
+**Subsequent pulls (refresh secrets after a rotation):** `vercel env pull .env.local` — overwrites with the latest Vercel state.
 
 ## Step 7 — Verify
 
