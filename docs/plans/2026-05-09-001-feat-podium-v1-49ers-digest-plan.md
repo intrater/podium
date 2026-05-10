@@ -5,9 +5,11 @@ plan-id: 2026-05-09-001
 type: feat
 title: "Podium v1 — 49ers podcast digest"
 origin: docs/brainstorms/podium-v1-requirements.md
-revised: 2026-05-09 (round 2 — added unit status tracker, updated frontmatter)
+revised: 2026-05-10 (execution sync — U5–U9 + U8 shipped; architecture deviation captured)
 prior-revisions:
-  - 2026-05-09 round 1 — applied ce-doc-review findings (P0 architectural fix, ~10 P1 fixes, ~10 P2 fixes, 6 safe-auto fixes)
+  - 2026-05-10 — synced sections that drifted from what shipped: single Supabase project (not staging+prod), Vercel Cron + bounded concurrency (not Deno Edge Function + pg_cron + sharded ingest_jobs), Node-only pipeline (no Deno mirror). U8 architecture decision recorded in the unit body + Key Technical Decisions.
+  - 2026-05-09 round 2 — added unit status tracker, updated frontmatter.
+  - 2026-05-09 round 1 — applied ce-doc-review findings (P0 architectural fix, ~10 P1 fixes, ~10 P2 fixes, 6 safe-auto fixes).
 ---
 
 # feat: Podium v1 — 49ers podcast digest
@@ -52,42 +54,42 @@ The eight Q&A clarifications captured during planning, layered on top of the bra
 
 ## High-Level Technical Design
 
-*This illustrates the intended approach and is directional guidance for review, not implementation specification. The implementing agent should treat it as context, not code to reproduce.*
+*This illustrates the intended approach and is directional guidance for review, not implementation specification. The implementing agent should treat it as context, not code to reproduce. **Reflects the as-shipped architecture (synced 2026-05-10).** Earlier revisions called for a Supabase Edge Function + pg_cron + sharded `ingest_jobs` approach; see U8's unit body and Key Technical Decisions for the deviation rationale.*
 
 ### System shape
 
 ```
-┌──────────────────┐    ┌─────────────────────┐    ┌──────────────┐
-│ Particle API     │←───│ Supabase Edge Fn    │───→│ Supabase DB  │
-│ (external)       │    │ "daily-digest"      │    │ (Postgres +  │
-│                  │    │ scheduled by        │    │  RLS + cron) │
-│ • search dialogue│    │ pg_cron @ 6am ET    │    │              │
-│ • list-episodes  │    │                     │    │ • episodes   │
-│ • get-clip       │    │ + Anthropic SDK     │    │ • segments   │
-│ • word transcript│    │ (Haiku 4.5,         │    │ • cards      │
-└──────────────────┘    │  realtime Messages, │    │ • feedback   │
-                        │  prompt caching)    │    │ • api_calls  │
-                        │                     │    │ • system_    │
-                        │ Sharded by podcast  │    │   alerts     │
-                        │ via ingest_jobs     │    │ • universes  │
-                        │ table + chained     │    │ • ingest_jobs│
-                        │ pg_net invocations  │    └──────┬───────┘
-                        └─────────────────────┘           │
-                                                          │ RLS-scoped reads
-                                                          ▼
-                                                ┌──────────────────┐
-                                                │ Next.js App      │
-                                                │ (Vercel Pro)     │
-                                                │                  │
-                                                │ • RSC card grid  │
-                                                │ • Audio player   │
-                                                │   (MVP: native + │
-                                                │   segment-level  │
-                                                │   highlight)     │
-                                                │ • Theme tokens   │
-                                                │   (single team   │
-                                                │   for v1)        │
-                                                └──────────────────┘
+┌──────────────────┐    ┌──────────────────────┐    ┌──────────────┐
+│ Particle API     │←───│ Next.js Route        │───→│ Supabase DB  │
+│ (external)       │    │ /api/cron/           │    │ (Postgres +  │
+│                  │    │   daily-digest       │    │  RLS)        │
+│ • search         │    │ Triggered by         │    │              │
+│ • mentions       │    │ Vercel Cron @ 6am ET │    │ • teams      │
+│ • list-episodes  │    │                      │    │ • universes  │
+│ • clips          │    │ + Anthropic SDK      │    │ • podcasts   │
+│ • transcripts    │    │ (Haiku 4.5 realtime  │    │ • episodes   │
+└──────────────────┘    │  Messages, prompt    │    │ • segments   │
+                        │  caching)            │    │ • cards      │
+                        │                      │    │ • feedback   │
+                        │ Bounded segment      │    │ • api_calls  │
+                        │ concurrency = 5      │    │ • system_    │
+                        │ fits 300s budget     │    │   alerts     │
+                        └──────────────────────┘    └──────┬───────┘
+                                  ▲                        │
+                                  │ /api/ingest (manual)   │ RLS-scoped reads
+                                  │                        ▼
+                        ┌─────────┴─────────┐    ┌──────────────────┐
+                        │ Vercel Cron       │    │ Next.js App      │
+                        │ vercel.json:      │    │ (Vercel Pro)     │
+                        │ "0 11 * * *"      │    │                  │
+                        │ (6am ET / 11 UTC) │    │ • RSC card grid  │
+                        └───────────────────┘    │ • Audio player   │
+                                                 │   (MVP: native + │
+                                                 │   segment-level  │
+                                                 │   highlight)     │
+                                                 │ • Theme tokens   │
+                                                 │   (single team)  │
+                                                 └──────────────────┘
                                                           ▲
                                                           │ podiumsports.app
                                                           │ (Vercel-managed)
@@ -95,24 +97,31 @@ The eight Q&A clarifications captured during planning, layered on top of the bra
 
 ### Data flow (one daily cycle)
 
-1. `pg_cron` at 6am ET fires the `daily-digest` Edge Function.
-2. Edge Function reads the active universe (`teams.universe_id` for "49ers") = entity slugs (team + roster + coaches) + storyline semantic queries.
-3. **Pre-flight cost estimate:** computes worst-case Particle + Anthropic spend for this run against the price table; if it exceeds 60% of remaining starter credit (and no payment method is on file), aborts with a `system_alerts` row and exits.
-4. **Sharded execution:** writes one row per podcast-shard into `ingest_jobs` (status `pending`); each Edge Function invocation processes one shard within the 150s wall, then chains the next via `pg_net` until all shards complete.
-5. Per shard: parallel calls to Particle (entity-mention search per entity, semantic search per storyline, episode listing for the shard's podcasts).
-6. Unions and dedupes results by `(episode_id, segment.start)`; skips any segment already cached in `segments`.
-7. For each new segment: `getWordLevelTranscript`, then summarize via Claude Haiku 4.5 (realtime Messages with prompt caching on the system + universe context).
-8. Persists into `episodes`, `segments`, `cards`, `api_calls`, and `system_alerts` per-shard.
-9. User opens app → server component reads today's `cards` filtered by user feedback → mobile-first card grid renders → tap to expand → audio player loads with segment-level transcript highlight.
+1. **Vercel Cron** at 6am ET (`0 11 * * *` UTC) fires `GET /api/cron/daily-digest`. Vercel automatically attaches `Authorization: Bearer ${CRON_SECRET}` when the env var is set; the route validates this header and returns 401 on mismatch.
+2. The handler calls `runDailyIngestion` (`lib/ingest/run.ts`) which reads the team's universe (`universes.entities` slugs + `universes.entity_id_map` ID lookup + `universes.storylines`) and the curated catalog (`podcasts.particle_id` for every catalog-resident podcast).
+3. **Auto-seed window** (Q8): if the user has zero cards, `sinceTimestamp = now() - 3 days`; otherwise `max(cards.surfaced_at) - 6h safety margin`.
+4. **Dev mode gate** (Q2 cost-consciousness): when `INGEST_DEV_MODE=true`, the run filters to the first 2 podcasts and a 1-day window.
+5. **Pre-flight cost estimate** (`lib/particle/cost-estimate.ts`): computes worst-case Particle spend for the window. The gate reads `api_calls.cost_usd` summed for the current month and aborts with a `system_alerts` row of kind `cost_abort` if the estimate exceeds 60% of remaining starter credit.
+6. **Run start marker**: a `system_alerts` row of kind `scheduled_run` (or `manual_run` for the POST path) records the runId, the resolved window, and the pre-flight estimate.
+7. **Per-run pipeline** (`lib/ingest/pipeline.ts`):
+   - Parallel calls to Particle: `searchEntityMentions` per universe entity_id, `searchByContent` (semantic) per storyline. List-episodes is informational and not currently used in v1.
+   - Union + dedupe segments across the two streams by `(episode_id, segment.id)`.
+   - Filter to segments not already in the `segments` table (cross-run dedupe by `particle_segment_id`).
+   - **Bounded per-segment concurrency (5 parallel)**: for each fresh segment, fetch the transcript slice via `getClipTranscript({ start, end })` then summarize via Claude Haiku tool-use (`submit_segment_analysis`). Off-topic segments (`is_team_relevant: false`) are dropped; quote-fidelity failures retry once.
+   - Group surviving segments by episode, upsert `episodes` + `segments` + `cards` (with episode-level rollup from `summarizeEpisode`).
+8. **Run-end marker**: a `system_alerts` row of kind `scheduled_run_complete` records totals (episodesPersisted, segmentsPersisted, cardsPersisted, off-topic + failed counts, attempt counts). A `try/catch` around the pipeline writes `scheduled_run_failed` instead if the run throws, so the status endpoint never reports `running` indefinitely.
+9. **User opens app** (U10–U13, not yet shipped): server component reads `cards` filtered by user feedback (the AE3 fix); mobile-first card grid renders; tap to expand; audio player loads with segment-level transcript highlight.
 
 ### Why these choices over the alternatives I considered
 
-- **Supabase Edge Function + pg_cron + sharded chaining via `pg_net`, NOT Vercel Cron.** Vercel Hobby caps at 60s; Pro at 5 min. Sharded chaining gives effectively unbounded total runtime by stringing 150s windows together via `ingest_jobs` state.
-- **Realtime Anthropic Messages with prompt caching, NOT Message Batches API.** Doc review found Batches' 24-hour SLA can't poll to completion in a 150s Edge Function — would have required a webhook architecture. At solo-user volume (~50–100 segments/day at steady state), the 50% Batches discount equals roughly $0.50–$1.00/month. Not worth the architectural cost. Cache on the universe context (~700 tokens of voice/format rules) gives a meaningful reduction on its own.
+- **Vercel Cron + Next.js route handler + bounded segment concurrency, NOT Supabase Edge Function + pg_cron + sharded `ingest_jobs` + pg_net chaining.** The original plan committed to the Edge Function path to leverage Supabase's 150s budget chained across shards. Vercel Pro gives a single 300s window, and bounded per-segment concurrency (5 parallel transcript+summarize calls) collapses the wall time of a full-catalog daily run from ~750s sequential to ~150s parallel — comfortably inside the budget. Choosing Vercel saves ~500 lines of duplicated Deno-flavored pipeline code (`supabase/functions/daily-digest/_pipeline-deno.ts`) that would have to stay in lockstep with `lib/ingest/pipeline.ts`. Manual `/api/ingest` POST shares the same `runDailyIngestion` wrapper. **If the daily run ever exceeds 300s**, the path forward is sharding inside the Vercel handler (chunk podcasts across multiple cron invocations), not a runtime swap.
+- **Realtime Anthropic Messages with prompt caching, NOT Message Batches API.** Doc review found Batches' 24-hour SLA can't poll to completion within a route handler's budget — would have required a webhook architecture. At solo-user volume (~50–100 segments/day at steady state), the 50% Batches discount equals roughly $0.50–$1.00/month. Not worth the architectural cost. Cache on the system + team context (~2k tokens) yields a meaningful reduction on its own (10% rate vs base on cache hits).
+- **Forced tool use (`submit_segment_analysis`) for Claude output, NOT prose-then-parse.** The structured tool-input schema is the authoritative shape. Zod validates the parsed input. Quote fidelity is checked as a substring match (with curly→straight quote normalization). One retry attempt uses a proper `tool_result` content block (Anthropic's API requires this on any user turn following an assistant `tool_use`).
 - **MVP-first audio player.** v1 ships a designed-but-MVP player: native `HTMLAudioElement` + custom chrome + segment-level transcript highlight (the active *segment* is highlighted, not individual words). Full word-level RAF-driven highlighting + wavesurfer waveform + virtualization is gated on usage data showing the player is actually tapped. Defers a hard 6+ hour engineering effort and avoids the RAF + virtualization conflict the doc review surfaced.
 - **Tailwind v4 `@theme inline` + `@property`-registered color tokens.** The `@property` registration is kept as a forward-compat stub (3 lines of CSS) for future team-switch transitions in v2. The full `team-theme-provider` runtime component is **deferred to v2** — v1 hard-codes `data-team="49ers"` in `app/layout.tsx`.
-- **`team_id` text + `user_id uuid not null references auth.users(id)` from day one, with explicit stub-auth RLS bridge.** Server-side reads/writes use the Supabase **service role key** with an explicit `WHERE user_id = $env.PODIUM_USER_ID` clause (RLS bypassed but identity enforced in code). Client-side reads in v1 use the anon key with a synthetic JWT minted server-side whose `sub` claim matches `PODIUM_USER_ID`, so RLS is exercised on every client read. v3 magic-link auth replaces only the JWT-minting step; policies and code paths unchanged.
-- **Staging + production Supabase projects, not single-project.** v1 ships with two Supabase projects: `podium-staging` and `podium-prod`. Migrations apply to staging first; promotion to prod is gated on staging success. Recovers from typo'd migrations without losing prod state.
+- **`team_id` text + `user_id uuid not null references auth.users(id)` from day one, with explicit stub-auth RLS bridge.** Server-side writes to operational tables (`api_calls`, `system_alerts`, `ingest_jobs`) use the Supabase **service role key** with explicit `WHERE user_id = $env.PODIUM_USER_ID` clauses on user-scoped paths (RLS bypassed but identity enforced in code). User-scoped reads (`cards`, `feedback`) use the anon key + a synthetic JWT minted server-side whose `sub` claim matches `PODIUM_USER_ID`, so RLS is exercised on every read. v3 magic-link auth replaces only the JWT-minting step; policies and code paths unchanged.
+- **Single Supabase project for v1, NOT staging + production.** The original plan called for two projects (`podium-staging` and `podium-prod`) so migrations could be tested in staging before promotion. v1 ships against a single project (`fszzncbglomjtsardyej`) — the user is solo and the cost-benefit didn't justify the split this early. **Pre-launch** (before opening to others in v3), spin up a staging project, apply all migrations, and gate prod promotion on staging success. The 0000 reset migration carries a destructive-replay warning so `supabase db reset` can't silently wipe prod data.
+- **Slug→ID resolution cached at seed time, NOT resolved per-run.** Particle's mentions endpoint requires `entity_id` (not slug) and list-episodes requires `podcast_id` (not slug). Migration 0009 adds `podcasts.particle_id text` + `universes.entity_id_map jsonb`. The seed runner (`lib/seed/index.ts`) populates both at setup via `SeedParticleResolver` (a raw-fetch resolver outside the cost-tracked client because slug resolution is a one-off op). Daily worker reads cached IDs — no per-run resolution spend.
 
 ---
 
@@ -122,70 +131,83 @@ The eight Q&A clarifications captured during planning, layered on top of the bra
 podium/
 ├── app/                          # Next.js pages
 │   ├── (app)/                    # Authenticated app group (no real auth in v1, structure ready for v3)
-│   │   ├── layout.tsx            # Sidebar, header, theme tokens
-│   │   ├── page.tsx              # Mobile-first digest grid (RSC)
+│   │   ├── layout.tsx            # Sidebar, header, theme tokens                [U10 — not started]
+│   │   ├── page.tsx              # Mobile-first digest grid (RSC)               [U11 — not started]
 │   │   └── episodes/[id]/
-│   │       └── page.tsx          # Expanded episode card with player
+│   │       └── page.tsx          # Expanded episode card with player            [U11/U12 — not started]
 │   ├── api/
 │   │   ├── ingest/
-│   │   │   ├── route.ts          # Manual "Run now" trigger (POST, rate-limited)
-│   │   │   └── status/route.ts   # GET — current ingest job status (for first-run UX)
-│   │   └── feedback/route.ts     # Per-segment feedback writes
+│   │   │   ├── route.ts          # Manual "Run now" trigger (POST, CRON_SECRET, rate-limited)   [U8 ✅]
+│   │   │   └── status/route.ts   # GET — most-recent system_alerts row, derived status         [U8 ✅]
+│   │   ├── cron/
+│   │   │   └── daily-digest/
+│   │   │       └── route.ts      # GET — Vercel Cron daily 6am ET trigger       [U8 ✅]
+│   │   └── feedback/route.ts     # Per-segment feedback writes                  [U13 — not started]
 │   ├── layout.tsx                # Root layout, theme tokens, fonts, hardcoded data-team="49ers"
 │   └── globals.css               # @import "tailwindcss"; @theme; @property
 │
 ├── components/
-│   ├── ui/                       # shadcn primitives (button, card, dialog, sheet, slider, sonner, skeleton)
-│   ├── digest/                   # Card-per-episode UI (total-time-pill inlined into episode-card)
-│   ├── player/                   # MVP audio player + segment-level highlight + scrubber
-│   ├── feedback/                 # The 3-button feedback bar
+│   ├── ui/                       # shadcn primitives                            [U2 ✅]
+│   ├── digest/                   # Card-per-episode UI                          [U11 — not started]
+│   ├── player/                   # MVP audio player + segment-level highlight   [U12 — not started]
+│   ├── feedback/                 # The 3-button feedback bar                    [U13 — not started]
 │   └── (no theme/ in v1 — single hardcoded team)
 │
 ├── lib/
-│   ├── particle/                 # Particle API client + cost telemetry wrapper + types + contract test
-│   ├── anthropic/                # Claude SDK + summarization prompts
-│   ├── supabase/                 # Browser/server client setup
-│   ├── universes/                # 49ers universe (entities + storylines)
-│   ├── ingest/                   # Pipeline shared between cron + manual trigger (dev-mode logic inlined)
-│   └── env.ts                    # Typed, validated env vars (server/client split via @t3-oss/env-nextjs)
+│   ├── particle/                 # Typed client + tracked-call + types + cost-estimate + contracts   [U7 ✅]
+│   ├── anthropic/                # Client + summarize + summarize-episode + prompts                  [U9 ✅]
+│   ├── supabase/                 # Browser + server + admin clients                                  [U5 ✅]
+│   ├── auth/                     # stub-jwt minting (replaced by real auth in v3)                    [U5 ✅]
+│   ├── universes/                # 49ers universe (entities + storylines)                            [U6 ✅]
+│   ├── seed/                     # Seed runner + Particle slug→id resolver                          [U6 + pre-U8 ✅]
+│   ├── ingest/                   # types.ts (shared), pipeline.ts (core), run.ts (wrapper)           [U8 ✅]
+│   └── env.ts                    # Typed, validated env vars (server/client split via @t3-oss/env-nextjs)   [U3 ✅]
 │
 ├── config/
-│   ├── podcasts.ts               # Curated 31-podcast list with Particle slugs
-│   └── teams.ts                  # Team palette definitions (49ers in v1; structure ready for v2 expansion)
+│   ├── podcasts.ts               # Curated 31-podcast list (catalog-verified)   [U6 ✅]
+│   └── teams.ts                  # 49ers OKLCH palette + sport disambiguation   [U6 ✅]
+│
+├── scripts/
+│   └── seed-supabase.ts          # `npm run seed` — populates universe + catalog + IDs              [U6 ✅]
 │
 ├── supabase/
-│   ├── migrations/               # SQL migrations (init, RLS, indexes, system_alerts, ingest_jobs, pg_cron)
-│   ├── functions/daily-digest/
-│   │   ├── index.ts              # Deno Edge Function (runs one shard per invocation)
-│   │   └── import_map.json       # Explicit Deno imports for cross-runtime parity
-│   ├── seed.sql.example          # Template for local dev seed (real seed.sql is gitignored)
-│   └── (seed.sql not committed — created from template + PODIUM_USER_ID at runtime)
+│   ├── migrations/               # SQL migrations 0000–0011                                          [U5 + pre-U8 + U8 ✅]
+│   │   # 0000 reset, 0001 init schema, 0002 RLS, 0003 indexes, 0004 pg_cron stub,
+│   │   # 0005 drop residual triggers, 0006 follow-up indexes, 0007 feedback card_id WITH CHECK,
+│   │   # 0008 universes.team_id UNIQUE, 0009 podcasts.particle_id + universes.entity_id_map,
+│   │   # 0010 drop operational SELECT policies, 0011 cards.episode_summary
+│   ├── seed.sql.example          # Documentation template (real seed runs via scripts/seed-supabase.ts)
+│   └── (seed.sql not committed — Particle-resolved IDs land in DB directly via the script)
 │
 ├── docs/
 │   ├── brainstorms/              # (existing) requirements doc
 │   ├── plans/                    # (existing) this file
 │   ├── particle/                 # User-fetched Particle docs (gitignored, populated during U1)
-│   └── solutions/                # Workflow artifact — per-unit learnings written during execution
-│       (this directory holds learning docs, not code; appearance in the file tree is informational)
+│   └── solutions/                # Per-unit learnings (particle-api-shape, particle-cost-estimate, env-and-secrets-setup)
 │
 ├── middleware.ts                 # Supabase session refresh (no-op in v1; active in v3)
 ├── next.config.ts
 ├── package.json
 ├── postcss.config.js
-├── vercel.json                   # Domain config + (optional) cron fallback
+├── vercel.json                   # Vercel Cron schedule: "0 11 * * *" → /api/cron/daily-digest      [U8 ✅]
 ├── .env.local.example            # Template for keys
 ├── .env.local                    # (gitignored) actual keys
 ├── AGENTS.md                     # Coding-agent guidance for the repo
 └── README.md
 ```
 
-The implementer may adjust the structure if a better layout becomes clear; per-unit `**Files:**` sections are authoritative.
+Markers: ✅ = landed in commits to date. The implementer may adjust the structure if a better layout becomes clear; per-unit `**Files:**` sections are authoritative.
+
+**Notable deviations from the original output structure:**
+- `supabase/functions/daily-digest/` was never created — the Deno Edge Function path was replaced by `/api/cron/daily-digest` (see U8 unit body).
+- `lib/seed/` is a new subdir not in the original tree — added because the seed runner needed a Particle resolver outside the server-only graph.
+- `scripts/seed-supabase.ts` is a new file — runs the seed via Node 24's native TS support (`--experimental-transform-types`).
 
 ---
 
 ## Unit Status
 
-Last updated: 2026-05-10 (U8 done — Vercel Cron approach replaces Edge Function plan)
+Last updated: 2026-05-10 (thorough sync — frontmatter, system diagram, data flow, output tree, U3 + U5 + U8 bodies, Key Decisions, Risks, Dependencies, Operational Notes all reflect as-shipped state)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -230,13 +252,17 @@ ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`.
 - ✅ **#4 (P1):** Documented in `lib/supabase/admin.ts` and `lib/supabase/server.ts` that operational table writes MUST go through `getSupabaseAdmin()`.
 - ✅ **U7 follow-up:** Migration `0009_resolved_ids.sql` adds `podcasts.particle_id text` + `universes.entity_id_map jsonb`. Seed runner extended with optional `SeedParticleResolver` that resolves slug→id at seed time via raw `/v1/podcasts` and `/v1/entities` calls (no cost telemetry; one-off op). The seed runs through the live API once during setup; daily worker reads cached IDs.
 
-**Pre-U8 (still pending):**
+**Pre-U4 deploy (must land before the custom domain goes live):**
+
+- **#15 (P2):** Add a shared-secret or stub-JWT check on `/api/*` in middleware. Today the middleware is a no-op pass-through. `GET /api/ingest/status` is currently unauthenticated and exposes operational metadata (cost figures, podcast IDs, run IDs). At minimum, gate it behind the same `CRON_SECRET` the write paths use, or add a stub-JWT check that mirrors the v3 cookie flow.
+- **U8 review residuals (gather into the same middleware pass):**
+  - **Rate-limit TOCTOU on `POST /api/ingest`.** Two simultaneous POSTs with the correct `CRON_SECRET` can both pass the recency check before either writes a `manual_run` row. Mitigate via `pg_try_advisory_lock` (one DB call). Low risk at v1 since `CRON_SECRET` is solo-user only.
+  - **Internal error message leakage on 500.** The route returns `{ error, message: err.message }`. Redact `message` before deploy.
+  - **Status endpoint redacts cost figures.** Either strip `cost_usd` and the cost-related fields in the `notes` payload from the public response, or fully authenticate the endpoint.
+
+**Defer to dedicated follow-up units (P2/P3, not blocking anything):**
 
 - **#16 (P2):** Generate Supabase TS types via `supabase gen types typescript --linked > lib/supabase/database.types.ts` and parameterize `createClient<Database>` so `.from()` returns are typed.
-
-**Pre-U4 deploy:**
-
-- **#15 (P2):** Add a shared-secret check on `/api/*` in middleware before the custom domain goes live. Today the middleware is a no-op pass-through; public internet would hit `/api/*` as the configured single user.
 
 **Defer to dedicated follow-up units (P2/P3, not blocking anything):**
 
@@ -364,16 +390,19 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 
 **Files:**
 - `.env.local.example` (template with all variable names + comments)
-- `.env.local` (gitignored — actual values for local dev pointing at staging Supabase)
+- `.env.local` (gitignored — actual values for local dev against the single Supabase project)
 - `lib/env.ts` (typed access using `@t3-oss/env-nextjs` with explicit `server`/`client` split — server-only vars throw build error if referenced from client components)
 - `docs/solutions/2026-05-09-env-and-secrets-setup.md` (click-by-click walkthrough for Supabase, Anthropic, Particle, Vercel dashboards)
 
 **Approach:**
-1. **Create both Supabase projects:** sign in at supabase.com → New project → name `podium-staging` (any region) and `podium-prod` (closest to user). Save both database passwords.
-2. Capture URLs and keys for each project from `Settings → API`. Service role keys go server-only; anon keys are client-safe.
+
+> **As shipped:** v1 uses **one Supabase project** (`fszzncbglomjtsardyej`), not staging + prod. The two-project split is deferred until pre-launch (before v3). Steps below reflect what actually happened.
+
+1. **Create one Supabase project:** sign in at supabase.com → New project → closest region. Save the database password.
+2. Capture the project's URL and keys from `Settings → API`. Service role key goes server-only; anon key is client-safe.
 3. Generate Anthropic API key with billing enabled.
 4. Generate Particle API key (already done in U1 for verification; confirm it's stored).
-5. Generate `CRON_SECRET` (random, used by manual `/api/ingest` route).
+5. Generate `CRON_SECRET` (random, used by manual `POST /api/ingest` AND the Vercel-Cron-triggered `GET /api/cron/daily-digest` — Vercel auto-attaches it to the cron request when the env var is set).
 6. Generate `SUPABASE_JWT_SECRET` (used to mint synthetic stub-auth JWTs in v1 — see U5 stub-auth bridge).
 7. Author `.env.local.example` with every variable + an `INGEST_DEV_MODE` flag (default `true` for dev, `false` for prod):
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (client-safe)
@@ -381,9 +410,9 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
    - `ANTHROPIC_API_KEY`, `PARTICLE_API_KEY`, `CRON_SECRET` (server-only)
    - `PODIUM_USER_ID` (the single hardcoded user UUID for v1 stub-auth)
    - `INGEST_DEV_MODE` (gates ingest pipeline to first 2 podcasts + 1-day window for cheap testing)
-8. Populate `.env.local` against the **staging** Supabase project for local dev.
+8. Populate `.env.local` against the single Supabase project for local dev.
 9. Write `lib/env.ts` using `@t3-oss/env-nextjs`'s server/client split — Next.js will fail the build at compile-time if a server-only var leaks into a client component.
-10. Configure Vercel project Environment Variables: Production → prod Supabase keys; Preview → staging Supabase keys.
+10. **Pre-deploy (U4 follow-up):** mirror every `.env.local` value into the Vercel project's Production environment. `INGEST_DEV_MODE` should be `false` in Production so the daily cron scans the full catalog.
 
 **Patterns to follow:**
 - `@t3-oss/env-nextjs` server-only enforcement.
@@ -446,7 +475,7 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 - `supabase/migrations/0004_pgcron_setup.sql` (refined in U8; created here as a stub)
 - `lib/supabase/client.ts` (`createBrowserClient` + stub-JWT bootstrap)
 - `lib/supabase/server.ts` (`createServerClient` per-request — uses anon key + stub JWT in v1, magic-link session in v3)
-- `lib/supabase/admin.ts` (service-role client for Edge Function and trusted server routes; never imported into client code)
+- `lib/supabase/admin.ts` (service-role client for trusted server routes and the daily worker; never imported into client code)
 - `lib/auth/stub-jwt.ts` (mints a JWT signed with `SUPABASE_JWT_SECRET` whose `sub` claim matches `PODIUM_USER_ID` — replaced by real session in v3)
 - `middleware.ts` (Supabase session refresh — no-op pass-through in v1; active in v3)
 - `__tests__/lib/supabase/server.test.ts` (RLS smoke tests using two mock users)
@@ -478,7 +507,7 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
    - **Always include `WITH CHECK`** on user-scoped tables.
 
 3. **Stub-auth bridge** (the gap doc-review surfaced):
-   - **Server-side reads/writes from Edge Function and trusted route handlers** use `lib/supabase/admin.ts` (service role key). Service role bypasses RLS, so these paths must include explicit `WHERE user_id = $env.PODIUM_USER_ID` clauses in code. Documented in `lib/supabase/admin.ts` with a code comment forbidding cross-user writes.
+   - **Server-side reads/writes from trusted server contexts** (the daily worker, manual `/api/ingest`, the cron route) use `lib/supabase/admin.ts` (service role key). Service role bypasses RLS, so these paths must include explicit `WHERE user_id = $env.PODIUM_USER_ID` clauses in code. Documented in `lib/supabase/admin.ts` with a code comment forbidding cross-user writes. Operational tables (`api_calls`, `system_alerts`, `ingest_jobs`) are now service-role-only after migration 0010 — user-scoped clients are denied by default RLS.
    - **Client-side reads** from React Server Components and browser code use `lib/supabase/server.ts` / `lib/supabase/client.ts` with the **anon key + a synthetic JWT** minted by `lib/auth/stub-jwt.ts` (signs a JWT with `SUPABASE_JWT_SECRET` whose `sub` = `PODIUM_USER_ID`). RLS evaluates `auth.uid()` against the stub JWT subject; policies fire normally. **This means RLS is genuinely exercised in v1, not bypassed.**
    - In v3, `stub-jwt.ts` is removed; the Supabase auth client provides real JWTs. Policies and code paths unchanged.
 
@@ -596,79 +625,65 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 
 ### U8. Daily ingestion worker + manual trigger + status endpoint
 
-**Goal:** The worker that runs daily at 6am ET and ships sharded across multiple Edge Function invocations to handle volume. Plus a manual `/api/ingest` route handler for dev runs and the "Run now" button, plus `/api/ingest/status` for the first-run loading UI.
+> **AS SHIPPED (2026-05-10):** Replaced the original Supabase Edge Function + pg_cron + sharded `ingest_jobs` architecture with **Vercel Cron + Next.js route handler + bounded per-segment concurrency**. Vercel Pro's 300s window plus segment concurrency = 5 fits the v1 daily run cleanly, saving ~500 LOC of duplicated Deno pipeline code. The original unit body below documents the original design; the **as-shipped** subsections summarize what landed. The Unit Status row at the top of this document carries the canonical file list.
+
+**Goal:** The worker that runs daily at 6am ET. Plus a manual `/api/ingest` POST route for dev runs and the "Run now" button. Plus `/api/ingest/status` for the first-run loading UI.
 
 **Requirements:** R1, R2, R3, R7, R8, F2, Q8 first-run experience.
 
 **Dependencies:** U6, U7, U9.
 
-**Files:**
-- `supabase/functions/daily-digest/index.ts` (Deno Edge Function — processes ONE shard per invocation, chains via pg_net)
-- `supabase/functions/daily-digest/import_map.json` (explicit Deno imports for cross-runtime parity)
-- `supabase/functions/daily-digest/_pipeline-deno.ts` (Deno-flavored pipeline; **co-located** with the Edge Function rather than imported from `lib/` because Deno doesn't honor Next.js `@/*` aliases)
-- `supabase/migrations/0004_pgcron_setup.sql` (refined; schedules `daily-digest` and the chain helper)
-- `app/api/ingest/route.ts` (manual trigger, POST, validates `CRON_SECRET`, rate-limited)
-- `app/api/ingest/status/route.ts` (GET, returns current `ingest_jobs` run status for the first-run loading UI)
-- `lib/ingest/pipeline.ts` (Node-flavored pipeline shared by route handler; **logically mirrors** the Deno pipeline; both are validated against the same integration test)
-- `__tests__/lib/ingest/pipeline.test.ts`
+**As-shipped files:**
+- `lib/ingest/types.ts` — `IngestPipelineInput`, `IngestPipelineOutput`, `PipelineDeps`.
+- `lib/ingest/pipeline.ts` — pure pipeline core (universe-driven fan-out → dedup → transcript fetch → summarize → persist). Bounded per-segment concurrency = 5.
+- `lib/ingest/run.ts` — `runDailyIngestion` policy wrapper around the pipeline (catalog read, INGEST_DEV_MODE filter, auto-seed window, pre-flight cost gate, system_alerts run-start + run-end markers, try/catch so failed runs always write a terminal marker).
+- `app/api/ingest/route.ts` — POST manual trigger. `Authorization: Bearer ${CRON_SECRET}`. Rate-limited (60s) via `system_alerts.kind='manual_run'` recency check. `export const maxDuration = 300`.
+- `app/api/ingest/status/route.ts` — GET status. Reads the latest `system_alerts` row across {manual_run, manual_run_complete, manual_run_failed, scheduled_run, scheduled_run_complete, scheduled_run_failed, cost_abort}. Returns camelCase `{ status, lastRun }` with an explicit kind→status map.
+- `app/api/cron/daily-digest/route.ts` — GET handler that Vercel Cron invokes. Same auth model (Vercel auto-attaches `Authorization: Bearer ${CRON_SECRET}` when the env var is set). Calls `runDailyIngestion` with `runKind='scheduled_run'`.
+- `vercel.json` — `crons: [{ path: "/api/cron/daily-digest", schedule: "0 11 * * *" }]` (6am ET / 11 UTC).
+- `supabase/migrations/0011_cards_episode_summary.sql` — adds `cards.episode_summary text` for the rollup.
+- `__tests__/lib/ingest/pipeline.test.ts` (4 scenarios), `__tests__/lib/ingest/run.test.ts` (7), `__tests__/app/api/ingest/route.test.ts` (6), `__tests__/app/api/ingest/status/route.test.ts` (7), `__tests__/app/api/cron/daily-digest/route.test.ts` (3) — 27 unit tests total.
 
-**Approach:**
+**As-shipped approach:**
 
-1. **Two pipelines, one shape.** `lib/ingest/pipeline.ts` (Node, used by route handler) and `supabase/functions/daily-digest/_pipeline-deno.ts` (Deno, used by Edge Function) implement the same logic against the same `IngestPipelineInput` and `IngestPipelineOutput` types. Both are exercised by the same integration test (running once in Node, once in Deno). This is duplication on purpose — cross-runtime module resolution is fragile, and a Deno-Node bridge would be more complex than co-locating.
+1. **One pipeline, Node-only.** The Deno mirror was dropped — Vercel Cron + `maxDuration: 300` + bounded segment concurrency provides enough headroom for the v1 daily run without splitting across two runtimes.
+2. **Bounded segment concurrency = 5.** The plan's biggest cost (transcript fetch + Claude summarize) was sequential per segment in the first U8.1 cut, projecting ~750s for a full-catalog day. Concurrency=5 collapses that to ~150s with comfortable headroom. Higher would risk Anthropic rate-limit bursts; lower would leave money on the table.
+3. **Pre-flight cost gate** (`lib/particle/cost-estimate.ts`): pure dry-run estimator. The wrapper sums `api_calls.cost_usd` for the current calendar month, computes `remaining = $10 - spent`, and aborts with a `cost_abort` system_alerts row if the estimate exceeds 60% of remaining. On DB read failure the gate fails open AND writes a `cost_gate_bypassed` system_alerts row so the bypass is visible.
+4. **Auto-seed first-run (Q8):** if the user has zero cards, `sinceTimestamp = now() - 3 days`. Otherwise `max(cards.surfaced_at) - 6h safety margin`.
+5. **Dev mode (Q2):** when `INGEST_DEV_MODE=true`, filter to the first 2 podcasts in `config/podcasts.ts` and use a 1-day window. Logic lives in `lib/ingest/run.ts`.
+6. **Manual trigger** (`app/api/ingest/route.ts`): POST with `Authorization: Bearer ${CRON_SECRET}`. 401 on mismatch. Rate limit: one successful invocation per 60 seconds via the recency check above. Returns `DailyIngestionResult` JSON (`{ runId, status, podcastsScanned, pipeline?, estimatedCostUsd? }`).
+7. **Scheduled trigger** (`app/api/cron/daily-digest/route.ts`): GET handler invoked by Vercel Cron. Same auth gate (Vercel attaches the header automatically). Calls the same `runDailyIngestion` wrapper with `runKind='scheduled_run'`.
+8. **Status endpoint** (`app/api/ingest/status/route.ts`): GET. Returns `{ status, lastRun }` where `status ∈ { running, completed, failed, cost_aborted, no_runs, unknown }`. Explicit kind→status map (no `endsWith('_complete')` matching that could over-broadly catch future kinds). Currently unauthenticated — tracked under "Residual review findings" → pre-deploy.
 
-2. **Sharded execution model:**
-   - At run start: pre-flight cost-estimate from U7. If estimate > 60% of remaining starter credit and no payment method on file (per Particle metadata), abort with a `system_alerts` row of kind `cost_abort`.
-   - Otherwise: write rows to `ingest_jobs` — one row per shard of ~10 podcasts. Status `pending`.
-   - Each Edge Function invocation: claim the next `pending` job, set status `running`, process, set status `done` (or `failed` with error). Then call `pg_net` to invoke itself again for the next pending job. Last shard exits without re-invoking.
-   - All shards together write to `system_alerts` once with the run's totals on completion.
+**Execution / verification (as shipped):**
+- Live end-to-end run on 2026-05-10: `npm run dev` + `curl POST /api/ingest` in dev mode. 2 podcasts × 1 day produced 2 cards (2 episodes, 18 segments persisted, 17 segments correctly rejected as off-topic). 185s wall time, $0.97 estimated cost. Episode summaries substantive and accurate.
+- 108 → 111 unit tests pass after U8 lands; lint clean; build clean.
 
-3. **Per-shard pipeline** (`pipeline.ts`):
-   - Read the active universe + the shard's podcast list.
-   - Parallel calls to Particle (entity-mention search per entity, semantic search per storyline, episode listing for the shard's podcasts since `sinceTimestamp`).
-   - Union + dedupe by `(episode_id, segment.start)`. Skip segments already cached.
-   - Per new segment: `getWordLevelTranscript` (used today only for transcript text; word-level data captured for v2 player), then summarize via U9 (realtime Messages, prompt caching).
-   - **Per-episode transaction**: episode + all its segments + the card row commit together. Cards across different episodes are independent transactions.
-   - Idempotent upserts: `on conflict (particle_segment_id) do nothing` on segments; `on conflict (user_id, team_id, episode_id) do update ...` on cards.
+**Original (deferred) approach — for reference:**
+1. **Two pipelines, one shape.** `lib/ingest/pipeline.ts` (Node) and `supabase/functions/daily-digest/_pipeline-deno.ts` (Deno) implementing the same logic against the same `IngestPipelineInput`/`IngestPipelineOutput` types, validated by a shared integration test. Skipped because Vercel Cron + concurrency was sufficient; the duplication-on-purpose cost wasn't justified.
+2. **Sharded execution via `ingest_jobs` + pg_net chaining.** Each Edge Function invocation processed one shard within the 150s wall and chained the next via `pg_net`, giving effectively unbounded total runtime. Skipped because Vercel's 300s window + concurrency=5 covers the v1 daily run. If we ever exceed 300s, shard inside the Vercel handler instead of swapping runtimes.
+3. **`pg_cron` schedule.** Replaced by Vercel Cron + `vercel.json`.
 
-4. **`pg_cron` schedule** (in `0004_pgcron_setup.sql`): `0 11 * * *` UTC = 6am ET (summer). Schedule pg_net call to the Edge Function with `Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}` header so the Function can be configured to require auth (not publicly invocable).
+**Test scenarios (as shipped):**
+- Pipeline happy path: 1 mention → 1 episode + 1 segment + 1 card.
+- Pipeline off-topic segment: summarizer returns null → segmentsRejectedOffTopic++, no card.
+- Pipeline empty Particle result: zero rows persisted.
+- Pipeline cross-run dedupe: segment already in DB → no transcript fetch, no Anthropic call.
+- Wrapper cost-abort: estimate > 60% remaining → `cost_abort` row + skip pipeline. **Covers cost-conscious operation.**
+- Wrapper empty catalog: returns `no_podcasts` when every `particle_id` is null.
+- Wrapper dev-mode bound: scans 2 podcasts.
+- Wrapper auto-seed first-run window: 3-day lookback when no cards.
+- Wrapper incremental window: max(surfaced_at) - 6h.
+- Wrapper runId uniqueness: each invocation generates a fresh UUID, threaded through both system_alerts markers.
+- POST manual auth: missing → 401; wrong secret → 401; correct → 200.
+- POST manual rate limit: recent run within 60s → 429 with `Retry-After`; clear → proceeds.
+- POST manual internal failure: thrown error → 500.
+- Status no_runs: empty system_alerts → 200 with status='no_runs'.
+- Status running / completed / failed / cost_aborted / unknown: latest row of each kind → correct derived status.
+- Cron handler auth: missing header → 401; valid bearer → calls runDailyIngestion with runKind='scheduled_run'.
 
-5. **Auto-seed first-run logic (Q8):** if no prior `cards` exist for the user, `sinceTimestamp = now() - interval '3 days'`. Otherwise `sinceTimestamp = max(cards.surfaced_at) - safety_margin`.
-
-6. **Dev mode (Q2 cost-consciousness):** when `INGEST_DEV_MODE=true`, the pipeline filters to first 2 podcasts in `config/podcasts.ts` and uses a 1-day window. Logic inlined in `pipeline.ts`; no separate file.
-
-7. **Manual trigger** (`app/api/ingest/route.ts`):
-   - POST with `Authorization: Bearer ${CRON_SECRET}`. 401 on mismatch.
-   - **Rate limit:** one successful invocation per 60 seconds. Enforced by checking `system_alerts` for the most-recent `kind='manual_run'` row and rejecting if `now() - that_row.created_at < 60s`.
-   - Forwards to the Edge Function via `pg_net`.
-   - Returns a structured response: `{ runId, sharded: true, shards: N }` so the UI can poll status.
-
-8. **Status endpoint** (`app/api/ingest/status/route.ts`): GET, returns `{ runId, totalShards, doneShards, failedShards, status: 'pending' | 'running' | 'done' | 'failed', latestSystemAlert }`. Authenticated via stub-JWT — no `CRON_SECRET` needed since it's a read.
-
-**Execution note:** Build the integration test first against `lib/ingest/pipeline.ts` (Node). Once it passes, port to Deno and verify the same test fixture produces the same DB state under the Deno path. This catches cross-runtime drift the moment it appears.
-
-**Patterns to follow:**
-- pg_cron + pg_net (research finding).
-- Idempotent upsert with `on conflict`.
-- Co-located pipeline duplication (justified above).
-
-**Test scenarios:**
-- **Happy path:** mock universe, mock Particle responses (3 episodes across 2 podcasts), mock summarization. Run pipeline against fresh staging DB. Assert 3 episode rows, ≥3 segment rows, 3 card rows, surfacing_entities populated.
-- **Idempotency:** run twice on same window; second run produces 0 new rows. **Covers AE5.**
-- **Empty Particle result:** zero hits; pipeline completes cleanly; one `system_alerts` row with `episodes_count: 0`.
-- **Particle 500 mid-run:** persists what completed; surfaces error in `system_alerts`; doesn't corrupt DB.
-- **Sharding:** seed 30 podcasts; pipeline writes 3 `ingest_jobs` rows; first invocation processes shard 0 + chains; chain completes all 3 shards.
-- **Cost-abort:** mock cost estimate > 60% of `$10` credit; assert no Particle calls made; assert `system_alerts` row with kind `cost_abort`.
-- **Cross-run dedupe:** seed `segments` with one record; mock Particle response includes that segment → skipped (no transcript re-fetch).
-- **Manual trigger auth:** POST without secret → 401; with wrong secret → 401; with correct secret → 200.
-- **Manual trigger rate limit:** two POSTs within 60s → second returns 429 with `Retry-After`.
-- **Status endpoint:** Covers F1 first-run UX. With pending run, returns expected status object.
-- **Dev mode bound:** with `INGEST_DEV_MODE=true`, assert Particle call count is bounded to 2 podcasts × universe entities.
-
-**Verification:**
-- Tests pass in CI.
-- A real (non-dev-mode) run against staging Supabase + real Particle (small universe, narrow window) produces real cards.
-- `pg_cron` schedule visible in `select * from cron.job` on staging.
-- `system_alerts` populates correctly across run completions.
+**Not covered in unit tests, verified live instead:**
+- Full end-to-end against live Particle + live Anthropic + live Supabase (the 2026-05-10 run above).
 
 ---
 
@@ -786,11 +801,12 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 2. **`episode-card.tsx`:** mobile-first — full-width; podcast artwork (~120×120 on mobile); episode title; podcast name + date (low-emphasis); inlined total-time pill ("8 min across 3 segments"); episode-level summary (2–3 sentences); expand affordance.
 3. **Expanded state:** opens a sheet (mobile) or inline expansion (desktop). **Information hierarchy inside the sheet:** episode-level summary at top → segments below in chronological order, each showing its summary + pull quotes + bullets + audio player. Sticky header with episode title. Dismiss via swipe-down OR explicit close button (don't rely on swipe alone — D9 fix).
 4. **First-run loading state** (`loading-state.tsx`):
-   - When the user has zero cards AND a pending `ingest_jobs` run exists (per `/api/ingest/status`): render skeleton + "Preparing your first digest…" + a step counter ("Shard 1 of 3").
-   - Polls `/api/ingest/status` every 2s.
-   - **Timeout:** if no progress for 60s, show "This is taking longer than expected — [Try again] [Continue waiting]" with explicit user choice.
-   - **Failure recovery:** if status returns `failed`, show "Something went wrong with your first run — [Retry] [View details]". The retry calls `/api/ingest` (manual trigger).
-   - **Empty result after success:** if status is `done` but zero cards exist (rare — quiet day, niche team), render the empty fallback with "No 49ers content in the last 3 days. Check back tomorrow or expand your sources."
+   - When the user has zero cards AND `/api/ingest/status` reports `status='running'` (a `manual_run` or `scheduled_run` system_alerts row with no terminal marker yet): render skeleton + "Preparing your first digest…".
+   - Polls `/api/ingest/status` every 2s. The endpoint returns the latest system_alerts row's kind, started_at, and (when finished) episodesCount / segmentsCount.
+   - **Timeout:** if no terminal marker arrives within 5 minutes (the Vercel route's `maxDuration`), show "This is taking longer than expected — [Try again] [Continue waiting]" with explicit user choice. (Note: the original plan referenced a "Shard X of N" counter when execution was sharded across multiple Edge Function invocations; with the as-shipped Vercel-Cron-single-route architecture there are no shards to count, just a single in-flight run.)
+   - **Failure recovery:** if status returns `failed`, show "Something went wrong with your first run — [Retry] [View details]". The retry calls `POST /api/ingest` (manual trigger).
+   - **Cost-abort recovery:** if status returns `cost_aborted`, show "Daily budget threshold reached — [View spend] [Continue anyway]". The continue path is not yet wired (admin override deferred); v1 surfaces the message and the system_alerts notes field with the dollar figures.
+   - **Empty result after success:** if status is `completed` but zero cards exist (rare — quiet day, niche team), render the empty fallback with "No 49ers content in the last 3 days. Check back tomorrow or expand your sources."
 5. **Mid-ingestion state for active users** (`refresh-banner.tsx`): when user has the page open and a fresh ingest completes, a banner appears: "New digest ready — tap to refresh." Clicking reloads the RSC. Avoids surprising the user with auto-changing content.
 6. **Mobile-first specifics:** thumb-reach target sizes (44pt min); tap-targets are full-width-tappable; sticky team chip header; horizontal scroll deliberately avoided.
 7. **Density (anti-AI-slop):** show 5–8 cards above the fold, not 2.
@@ -804,10 +820,11 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 **Test scenarios:**
 - **Happy path:** seed 3 cards; render `app/(app)/page.tsx`; assert 3 episode-card components with correct titles + summaries + total times. **Covers AE1, AE2.**
 - **AE3 (the doc-review fix):** seed 3 cards; insert `feedback` row with `verdict='not_relevant'` for card 2; refresh render; assert only cards 1 + 3 appear. **Covers AE3.**
-- **Loading skeleton:** zero cards + pending ingest_jobs row; assert skeleton + "Preparing…" + shard counter render.
-- **Loading timeout:** zero cards + pending ingest_jobs that hasn't progressed in 60s; assert timeout UI shows.
-- **Loading failure:** ingest_jobs reports `failed`; assert failure UI with Retry button.
-- **Empty after success:** ingest_jobs done + zero cards; assert empty fallback.
+- **Loading skeleton:** zero cards + status='running' from `/api/ingest/status`; assert skeleton + "Preparing…" copy renders.
+- **Loading timeout:** zero cards + status='running' for >5 min (no terminal marker); assert timeout UI shows.
+- **Loading failure:** `/api/ingest/status` returns status='failed'; assert failure UI with Retry button.
+- **Cost-abort surface:** `/api/ingest/status` returns status='cost_aborted'; assert the cost-budget message with the notes field rendered.
+- **Empty after success:** status='completed' + zero cards; assert empty fallback.
 - **Refresh banner:** initial render with N cards; mock `/api/ingest/status` polling returning a newer `runId`; assert banner appears.
 - **Date sort:** seed 3 cards with different `surfaced_at`; assert descending order.
 - **Hidden cards excluded:** seed card with `hidden=true`; assert not rendered.
@@ -982,11 +999,11 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 - **Multi-phase feedback intelligence (passive log → SQL weighting → LLM check).** Pay for ML only after data justifies it.
 - **MVP-first audio player.** v1 ships native `<audio>` + segment-level highlight + designed chrome. Full word-level RAF + wavesurfer + virtualization is deferred until usage data shows the player gets tapped (per adversarial finding A5).
 - **Realtime Anthropic Messages + prompt caching, NOT Message Batches.** At solo volume the 50% Batches discount is ~$0.50–$1/month — not worth the webhook architecture required to bridge Batches' 24h SLA with the 150s Edge Function wall (per feasibility F1).
-- **Sharded daily worker via `ingest_jobs` + `pg_net` chaining.** Effectively unbounded total runtime via 150s windows chained together; resumable on failure (per feasibility F2).
+- **Vercel Cron + Next.js route + bounded segment concurrency (as shipped 2026-05-10), NOT Supabase Edge Function + pg_cron + sharded `ingest_jobs` chaining.** Vercel Pro's 300s window plus segment-level concurrency = 5 collapses the wall time of a full-catalog daily run from ~750s sequential to ~150s parallel. Skipping the Deno pipeline mirror saves ~500 LOC that would have to stay in lockstep with the Node pipeline. If volume ever exceeds the 300s budget, the path forward is sharding inside the Vercel handler, not a runtime swap. (Original plan tradeoff captured in U8's "Original (deferred) approach" subsection.)
 - **Stub-auth bridge: server-side service-role with explicit user_id WHERE clauses; client-side anon-key + synthetic JWT.** RLS is genuinely exercised in v1, not bypassed silently. v3 swap is just JWT-source replacement (per security S2).
-- **Staging + production Supabase projects, not single-project.** Migrations test in staging before promotion (per adversarial A6).
-- **`supabase/seed.sql` gitignored; `seed.sql.example` template committed.** Real UUIDs never reach git; runtime substitution from `PODIUM_USER_ID` (per security S1).
-- **Two pipeline files (Node + Deno) shared by integration test, not import-bridged.** Cross-runtime module resolution is fragile; co-located duplication validated by single test fixture is more robust than a Deno-Node import-map gymnastics layer (per feasibility F4).
+- **Single Supabase project for v1, NOT staging + production.** Original plan called for two projects to gate prod promotion on staging success. v1 ships against a single project (`fszzncbglomjtsardyej`) — solo user, the two-project overhead wasn't justified this early. Pre-launch (before v3 opens to others), spin up staging, apply all migrations, promote on green. The 0000 reset migration carries a destructive-replay warning.
+- **`supabase/seed.sql.example` committed as documentation; real seed runs via `scripts/seed-supabase.ts`.** The script uses Node 24's native TS support + a Particle resolver (`lib/seed/particle-resolver.ts`) that bypasses the cost-tracked client (slug→id is a one-off setup op). No `seed.sql` file in the repo.
+- **One pipeline (Node only), no Deno mirror.** Original plan committed to two pipeline files exercised by a shared integration test. Replaced by the single Node pipeline + Vercel Cron architecture above. Removes the cross-runtime drift risk entirely.
 - **`docs/solutions/` learnings written per-unit during execution.** Future agents skip relearning tax.
 - **Stack: TypeScript + Next.js (App Router) + Tailwind v4 + shadcn/ui + Motion on Vercel; Supabase (Pro) + Anthropic (Haiku 4.5).** Leverages user's existing paid tooling; design-friendly; low marginal cost.
 
@@ -994,35 +1011,35 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 
 ## Risks & Mitigations
 
-- **Risk: U1 verification surfaces multiple Particle limitations.** Mitigation: U1's 8-dimension verification + 8 contingency paths (A–H) cover the realistic failure modes upfront. If 3+ contingencies fire, scope review with user before continuing. Probability: medium. Impact: medium.
+- **Risk: U1 verification surfaces multiple Particle limitations.** Mitigation: U1's 8-dimension verification + 8 contingency paths (A–H) cover the realistic failure modes upfront. ✅ **Resolved during U1 Round 2:** all 8 dimensions verified against live API; no contingencies fired. Probability: low. Impact: closed.
 
-- **Risk: Auto-seed cost burns starter credit.** Mitigation: U7 cost dry-run estimates worst-case before any real call; U8 pre-flight gate aborts if estimate >60% of remaining credit; dev-mode caps testing volume. Probability: medium without mitigation, low with. Impact: low (resolved by adding payment method).
+- **Risk: Auto-seed cost burns starter credit.** Mitigation: U7 cost dry-run estimates worst-case before any real call; U8 pre-flight gate aborts if estimate >60% of remaining credit; dev-mode caps testing volume. ✅ **Validated 2026-05-10:** live dev-mode run cost $0.97 against $10 starter. Probability: low. Impact: low.
 
-- **Risk: Edge Function 150s wall on auto-seed run.** Mitigation: sharded `ingest_jobs` chaining gives effectively unbounded total runtime. First-run UX (U11) shows shard progress so user sees real-time status. Probability: medium for the first run. Impact: low (just slower seed; not a failure).
+- **Risk: Daily worker exceeds Vercel's 300s budget.** Mitigation: bounded per-segment concurrency = 5 brings projected wall time to ~150s for a full-catalog day. If volume grows beyond that, shard the catalog inside the Vercel handler across multiple cron invocations (the architecture supports this without a runtime swap). Probability: low at v1 volume. Impact: medium (would surface as a 504 from Vercel; runDailyIngestion writes a `*_failed` marker so the status endpoint reports correctly).
 
 - **Risk: MVP audio player feels too simple to satisfy R17 design-led requirement.** Mitigation: chrome quality (custom scrubber, designed transcript treatment, intentional play-button) carries the design weight; segment-level highlight is functional and not visually sub-par. Defer judgment to real-device verification in U12. If MVP feels insufficient, reopen scope toward word-level RAF + wavesurfer in a follow-up unit. Probability: low. Impact: medium (might trigger an additional unit).
 
-- **Risk: 49ers entity slugs in Particle don't match expectations.** Mitigation: U1 verifies coverage rate; U6 universe config carries `nameFallbacks` for missing slugs; semantic search picks them up. Probability: low–medium. Impact: low.
+- **Risk: 49ers entity slugs in Particle don't match expectations.** Mitigation: U1 verifies coverage rate; U6 universe config carries `nameFallbacks` for missing slugs; semantic search picks them up. ✅ **Resolved during U1 Round 2:** 100% predicted-slug accuracy on 15 sampled names; 30/30 entities resolved during the live seed run. Probability: closed. Impact: closed.
 
-- **Risk: Cross-runtime drift between Node and Deno pipelines.** Mitigation: same integration test runs against both runtimes before Phase C is declared complete. Co-located duplication is the explicit choice — easier to keep aligned than complex import bridging. Probability: medium. Impact: medium.
-
-- **Risk: RLS smoke tests skipped under time pressure.** Mitigation: execution note in U5 marking them non-skippable; cross-user isolation is the only data-integrity guard before v3. Probability: low (the note + CI failure on missing tests). Impact: critical if missed.
+- **Risk: RLS smoke tests skipped under time pressure.** Mitigation: execution note in U5 marking them non-skippable; cross-user isolation is the only data-integrity guard before v3. ✅ **Shipped:** RLS smoke suite runs against the live Supabase project; positive-path test (B inserts feedback against B's own card) added in the U5 follow-up. Probability: closed (suite would now fail in CI if removed). Impact: closed.
 
 - **Risk: Particle ships a breaking API change mid-build.** Mitigation: U7 contract-test snapshots fail CI on shape drift. Probability: low–medium for a 2026-launched product. Impact: medium (caught before production deploy).
 
-- **Risk: Solo non-technical user hits an unrecoverable migration error.** Mitigation: staging Supabase project + every migration tested in staging before prod; reverse migration in same PR for any structural change. Probability: low with mitigation, medium without. Impact: medium without staging.
+- **Risk: Solo non-technical user hits an unrecoverable migration error.** Mitigation: every migration is reversible-by-follow-up-migration (we don't edit applied migrations); the 0000 reset carries an explicit destructive-replay warning. The single-Supabase-project setup means a typo'd migration would hit prod directly — the user has been asked to spin up staging pre-launch (before v3) to gate promotion. Probability: low at v1 since the schema is now frozen. Impact: medium if it happens before the staging split.
 
-- **Risk: Audio URL is short-lived and expires before user plays the clip.** Mitigation: U1 contingency C — re-sign at request time via `/api/clips/[id]/audio`. Probability: depends on Particle's URL model (verified in U1). Impact: low (route handler is small).
+- **Risk: Audio URL is short-lived and expires before user plays the clip.** Mitigation: U1 contingency C — re-sign at request time via `/api/clips/[id]/audio`. ✅ **Resolved during U1 Round 2:** Particle audio URLs are permanent CDN paths with range support; no re-signing route needed. Probability: closed. Impact: closed.
+
+- **Risk: Live test runs leak mock IDs into prod state.** Mitigation: `__tests__/lib/seed/index.test.ts` cleanup conditionally re-seeds via the real Particle resolver when `PARTICLE_API_KEY` is in env, restoring canonical IDs after every run. Without the key the cleanup is skipped so a keyless local run can't trash prod data. Probability: low. Impact: low.
 
 ---
 
 ## Dependencies / Prerequisites
 
-- **Accounts already in place** (per Q5): Vercel Pro, Supabase Pro (account; **two projects to be created in U3**), GitHub `intrater/podium`. Domain `podiumsports.app` registered.
-- **Accounts/keys obtained during execution:** Particle API key (U1 / U3), Anthropic API key with billing (U3), `CRON_SECRET` (U3), `SUPABASE_JWT_SECRET` (U3 — used by stub-JWT minting).
-- **Particle docs:** must be fetched locally by the user (sandbox can't reach `docs.particle.pro`); U1 reads from `docs/particle/`.
+- **Accounts already in place** (per Q5): Vercel Pro, Supabase Pro (account; **single project `fszzncbglomjtsardyej` for v1; staging split deferred until pre-launch**), GitHub `intrater/podium`. Domain `podiumsports.app` registered.
+- **Accounts/keys obtained during execution:** Particle API key (U1 / U3) ✅, Anthropic API key with billing (U3) ✅, `CRON_SECRET` (U3) ✅, `SUPABASE_JWT_SECRET` (U3 — used by stub-JWT minting) ✅. All populated in `.env.local`.
+- **Particle docs:** must be fetched locally by the user (sandbox can't reach `docs.particle.pro`); U1 reads from `docs/particle/`. ✅ U1 captured + verified via live API.
 - **External services:** Particle API up; Anthropic API up; Supabase platform up.
-- **Local environment:** Node 20+; Deno (for Supabase Edge Function local dev); Supabase CLI for migrations.
+- **Local environment:** Node 24+ (uses `--experimental-transform-types` for the seed runner); Supabase CLI for migrations. **No Deno needed** — the original plan called for Deno + Supabase Edge Function; that path was replaced by Vercel Cron.
 
 ---
 
@@ -1040,19 +1057,21 @@ Plus a **cost dry-run**: estimate worst-case Particle + Anthropic spend for the 
 
 ## Operational / Rollout Notes
 
-- **First production run before user-facing launch:** trigger the manual `/api/ingest` route once on the deployed app pointing at prod Supabase to seed. Verify cards appear. Verify cost telemetry registers.
-- **Migration testing:** every migration applies to staging FIRST. Verify against the RLS smoke tests on staging. Promote to prod only after staging is green.
-- **Daily worker activation:** schedule `pg_cron` only after the first manual seed succeeds on prod. Test the 6am scheduled run manually in dev hours first by setting a one-time pg_cron at 5 minutes from now and confirming it fires.
-- **Pre-launch checklist** (created in `docs/solutions/2026-05-09-prelaunch-checklist.md` in U13):
-  - Domain DNS verified ✓
-  - Vercel env vars set for both Production and Preview ✓
-  - Both Supabase projects (staging + prod) have all migrations applied ✓
-  - `supabase/seed.sql` (gitignored) generated and applied to prod via `scripts/seed-supabase.ts` ✓
-  - Particle payment method on file (or Growth upgrade decision made) ✓
-  - First manual ingestion run completed and inspected ✓
-  - RLS smoke tests passing in CI ✓
-  - Contract-test snapshots captured against real Particle responses ✓
-- **Post-launch observability:** `api_calls` + `system_alerts` are the primary observability surfaces; supplement with Supabase's built-in Postgres logs and Vercel's function logs. Sentry-or-similar deferred.
+- **First production run before user-facing launch:** after the first Vercel deploy, trigger `POST /api/ingest` once manually with the `CRON_SECRET` to verify cards appear in the production DB. Confirm `api_calls` rows land and the cost gate logs reasonable numbers. Then let Vercel Cron take over the 6am schedule.
+- **Daily worker activation:** Vercel Cron in `vercel.json` is inert until the first deploy. Once deployed, the schedule fires automatically the morning after — no separate enable step.
+- **Migration safety (v1 single-project):** every migration is **applied directly to `fszzncbglomjtsardyej`** via `supabase db push`. Reversibility is achieved by writing a follow-up migration, never by editing an applied one. The 0000 reset carries a destructive-replay warning so `supabase db reset` doesn't silently wipe prod. **Pre-launch action** (before opening to others in v3): spin up a `podium-staging` Supabase project, replay all migrations, gate prod migrations on staging success.
+- **Pre-launch checklist** (lands as `docs/solutions/2026-05-XX-prelaunch-checklist.md` during U13):
+  - Domain DNS verified (U4 user task)
+  - Vercel env vars set for Production (Supabase URL/anon/service-role, Particle key, Anthropic key, `CRON_SECRET`, `SUPABASE_JWT_SECRET`, `PODIUM_USER_ID`, `INGEST_DEV_MODE=false`)
+  - Particle dashboard credit weights inspected; price table in `lib/particle/types.ts` updated if needed
+  - All migrations applied to prod (currently 0000–0011)
+  - Seed run against prod via `npm run seed` (populates universe + catalog + resolved IDs)
+  - First manual ingestion run completed and inspected
+  - RLS smoke tests passing in CI
+  - Contract-test snapshots captured against real Particle responses (✅ shipped in U7)
+  - Stub-JWT or middleware shared-secret check added on `/api/*` (residual #15)
+  - Cost telemetry SQL query documented for ongoing spend monitoring
+- **Post-launch observability:** `api_calls` + `system_alerts` are the primary observability surfaces. `system_alerts` carries one row per run start, one per run end (or `*_failed` on exception), plus `cost_abort` and `cost_gate_bypassed` markers. Supplement with Supabase's Postgres logs and Vercel's function logs. Sentry-or-similar deferred.
 
 ---
 
