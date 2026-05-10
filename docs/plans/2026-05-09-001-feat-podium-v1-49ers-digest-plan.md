@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (post-U5)
+Last updated: 2026-05-10 (post-U5 + code review)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -195,8 +195,8 @@ Last updated: 2026-05-10 (post-U5)
 | U3 | Env, secrets, Supabase projects | **done** | `lib/env.ts`, `.env.local.example`, setup walkthrough, `.env.local` populated, build verified. Vercel env vars pending (needed for deploy, not local dev). |
 | U4 | Domain → Vercel | **not started** | User adds DNS records at registrar. Only needed for production deploy. |
 | **Phase B — Data layer** | | | |
-| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0005 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite (7 tests) passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. |
-| U6 | Niners universe + seed | **not started** | Blocked on U5. Predicted slugs confirmed 100% accurate for 49ers — universe is just data, no startup resolution script. Curated 31-podcast list defined against live catalog (5-min sweep). |
+| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0006 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite (10 tests) passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. ce-code-review pass landed 7 follow-up fixes (commit `31ce6ba`); 18 findings deferred — see "Residual review findings (U5 follow-up)" below. |
+| U6 | Niners universe + seed | **not started** | Blocked on U5. Predicted slugs confirmed 100% accurate for 49ers — universe is just data, no startup resolution script. Curated 31-podcast list defined against live catalog (5-min sweep). **Worth addressing review finding #2 (feedback cross-user `card_id` RLS gap, P1) before U6 inserts data.** |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **not started** | Blocked on U5 (`api_calls` table). Response shape now fully verified; rate-limit handling can be simple (10k/min ceiling). |
 | U8 | Daily ingestion worker | **not started** | Blocked on U6, U7, U9. |
@@ -212,6 +212,39 @@ Last updated: 2026-05-10 (post-U5)
 1. **U4 DNS** — add Vercel DNS records at the `podiumsports.app` registrar. ~5 min. Only needed for production deploy.
 2. **Vercel env vars** — mirror `.env.local` values into Vercel project settings (Production → prod Supabase keys; Preview → staging keys). Needed for deploys, not local dev.
 3. **Particle dashboard credit-weight inspection** — read per-call credit cost for `standard` and `premium` tiers from the dashboard before the first non-dev-mode run. ~5 min. Not blocking U5–U9 code work.
+
+### Residual review findings (U5 follow-up)
+
+ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`. The following are deferred — most should land in dedicated follow-up units, but a few are worth addressing **before U6 starts seeding data** (flagged ⚠️). Full per-reviewer artifacts at `/tmp/compound-engineering/ce-code-review/20260510-075735-df032d88/` (ephemeral; capture findings in PR descriptions or solutions docs if needed long-term).
+
+**Pre-U6 (10–30 min total):**
+
+- ⚠️ **#2 (P1, anchor 100, 3 reviewers):** `feedback` RLS WITH CHECK only validates `user_id`; user A can attach feedback to user B's `card_id`. Fix: tighten WITH CHECK to require `card_id IS NULL OR EXISTS (SELECT 1 FROM cards WHERE id = card_id AND user_id = auth.uid())`. New migration; add a smoke test.
+- ⚠️ **#1 (P0, anchor 75):** `createSupabaseServerClient(userId?)` accepts arbitrary userId — forge-everything primitive. Drop the param for v1; expose impersonation only via a test-only helper gated behind `NODE_ENV !== 'production'`.
+- ⚠️ **#5 (P1):** `0000_reset.sql` only drops the prior Apple-based tables. If a partial v1 schema ever needs replay, 0000 won't clean it and 0001 collides. Add v1 tables to the reset's IF EXISTS list.
+
+**Pre-U7 (when ingestion + cost telemetry come online):**
+
+- **#3 (P1):** Drop `read by authenticated` SELECT policies on `api_calls`, `system_alerts`, `ingest_jobs`. Latent in v1 single-user; leaks operational metadata in v3. Plan says "policies do not change between versions" so fixing now is correct.
+- **#4 (P1):** Document in `lib/supabase/server.ts` that writes to `api_calls`/`system_alerts`/`ingest_jobs` MUST use `getSupabaseAdmin()` — the SELECT-only policies otherwise silently reject INSERTs from the user-scoped client.
+- **#16 (P2):** Generate Supabase TS types via `supabase gen types typescript --linked > lib/supabase/database.types.ts` and parameterize `createClient<Database>` so `.from()` returns are typed.
+
+**Pre-U4 deploy:**
+
+- **#15 (P2):** Add a shared-secret check on `/api/*` in middleware before the custom domain goes live. Today the middleware is a no-op pass-through; public internet would hit `/api/*` as the configured single user.
+
+**Defer to dedicated follow-up units (P2/P3, not blocking anything):**
+
+- #8 — `feedback` CHECK requiring at least one of (card_id, segment_id) non-null
+- #9 — Migration filename convention (rename to `YYYYMMDD_*` before next migration if the deviation matters; otherwise accept)
+- #11 — Document `next build` as the canonical server-only boundary (the test mock defeats the build-time guard)
+- #12 — Vitest preflight cleanup of stale `rls-test-%` rows older than 1 hour (live-DB tests leak on SIGKILL)
+- #13 — Document teams↔universes circular FK seed order (or do it in U6's seeding script)
+- #14 — `0000_reset.sql` permanently in history is a project-ref footgun (consider archiving after first deploy)
+- #17 — UNIQUE on `universes.team_id` (prevents orphan accumulation if seeding glitches)
+- #18 — Plan-required EXPLAIN sanity test on `cards (user_id, surfaced_at desc)`
+- #22, #23 — `cascade` qualifier in 0005 + missing `IF NOT EXISTS` in 0001. Both edit already-applied migrations; skipped to avoid migration-history drift; documented as an accepted trade-off.
+- #24 — `ingest_jobs.podcast_ids uuid[]` has no FK integrity (Postgres limitation; alternative is a child table)
 
 ---
 
