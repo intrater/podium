@@ -55,3 +55,22 @@ Podium is a daily web-app digest of 49ers podcast moments. v1 ships single-user 
 - `docs/brainstorms/podium-v1-requirements.md` — origin requirements
 - `docs/solutions/2026-05-09-particle-api-shape.md` — Particle response shapes verified against the docs
 - `docs/solutions/2026-05-09-particle-cost-estimate.md` — cost model and budget framework
+
+## Working with the user (read this every session)
+
+The user is **John Intrater**, a designer building Podium solo. He is **not an engineer** — guide step-by-step, explain trade-offs in plain language, and don't assume familiarity with backend, infra, or Postgres internals. He'd rather understand a smaller correct thing than skim a larger half-correct thing. When proposing decisions, surface the recommendation with one sentence on why; don't bury it in a tradeoff matrix.
+
+**Collaboration preferences:**
+
+- **Never ask the user to paste secrets, API keys, JWTs, or credentials into chat.** All such values live in `.env.local` (gitignored) and dashboards. If a value is needed, source it from `.env.local` via shell, or ask the user to update `.env.local` directly. The setup walkthrough at `docs/solutions/2026-05-09-env-and-secrets-setup.md` covers what goes where.
+- **Pick up from the plan, not the conversation.** Each session, read `docs/plans/2026-05-09-001-feat-podium-v1-49ers-digest-plan.md` (the Unit Status table near the top) to understand what's done and what's next. The "Residual review findings" section there enumerates deferred follow-ups by when they should land. Continuity across sessions/machines lives in the repo, not in any per-machine memory store.
+- **Default to action over conversation when the path is clear.** If a unit is queued and unblocked, propose to start it and proceed if the user agrees. Long planning chats before a 30-minute unit are a tax.
+- **Prefer one bundled commit per unit** unless multiple logical scopes shipped together (then split). The user is fine with co-authored commit messages from Claude.
+- **Migration safety:** the project ships against a single Supabase project (`fszzncbglomjtsardyej`) with no separate staging until pre-launch. Do not modify migrations that have already been applied — write a follow-up migration instead. The Supabase CLI tracks migration history by version (filename) and a destructive 0000_reset already ran once with explicit user authorization; further destructive operations require explicit confirmation each time, not "you said yes earlier."
+
+**Things to verify each session before starting work:**
+
+1. `git pull --rebase origin main` (the user works across machines).
+2. `git status` is clean.
+3. `npm install` is current (run if `package-lock.json` changed since last session).
+4. `.env.local` exists locally (gitignored — must be recreated on each new machine; see `docs/solutions/2026-05-09-env-and-secrets-setup.md`).
