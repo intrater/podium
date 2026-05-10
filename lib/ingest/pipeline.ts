@@ -258,6 +258,7 @@ export async function runIngestPipeline(
           episode_id: episodeUuid,
           surfaced_at: new Date().toISOString(),
           total_relevant_seconds: totalRelevantSeconds,
+          episode_summary: rollup?.summary ?? null,
         },
         { onConflict: "user_id,team_id,episode_id" },
       );
@@ -266,13 +267,6 @@ export async function runIngestPipeline(
       continue;
     }
     out.cardsPersisted += 1;
-
-    if (rollup) {
-      // The episode-level rollup goes onto the first segment's pull_quotes
-      // surface for v1. A dedicated `episode_summary` column would be
-      // cleaner and lands as a U11 follow-up.
-      console.log(`pipeline: episode rollup for ${group.episode.id}:`, rollup.summary);
-    }
   }
 
   return out;
