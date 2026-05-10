@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (U7 + U9 landed)
+Last updated: 2026-05-10 (Pre-U8 follow-ups landed; U8 unblocked)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -199,7 +199,7 @@ Last updated: 2026-05-10 (U7 + U9 landed)
 | U6 | Niners universe + seed | **done** | `config/podcasts.ts` (31 catalog-resident podcasts; 7 team-specific + 24 national), `config/teams.ts` (49ers OKLCH palette), `lib/universes/49ers.ts` (30 verified entity slugs + 8 storylines), `lib/seed/index.ts` (idempotent runner), `scripts/seed-supabase.ts` (`npm run seed`), tests covering schema validity, slug pattern, kind thresholds, and live-DB idempotency. Migration `0008_universes_team_id_unique.sql` added UNIQUE(team_id) so concurrent seed runs can't insert duplicate universe rows (resolves residual #17). |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **done** | `lib/particle/{types,tracked-call,client,cost-estimate}.ts` plus 9 contract snapshots and 65 unit tests. Hardcoded per-endpoint tier mapping (search/mentions/clip/transcripts = premium; list endpoints = standard). Retry policy covers 408/429/5xx; 401 + 422 are terminal; AbortSignal short-circuits; default 30s timeout per attempt. **NEW finding for U8:** Particle's mentions endpoint requires `entity_id` (NOT slug), and list-episodes requires `podcast_id` (NOT slug). The U6 universe + podcasts ship as slugs only; U8 must resolve slug→id at worker startup via `listEntities` and `listPodcasts`, and cache the IDs (either in-memory per-run or by adding columns in a follow-up migration). |
-| U8 | Daily ingestion worker | **next** | Unblocked. Note the slug→id resolution work flagged below. |
+| U8 | Daily ingestion worker | **next** | All blockers resolved. Slug→id resolution shipped as part of the Pre-U8 bundle (migration 0009 + lib/seed/particle-resolver.ts; live DB now carries 31/31 podcast IDs and 30/30 entity IDs). |
 | U9 | Claude Haiku summarization | **done** | `lib/anthropic/{client,summarize,summarize-episode,types}.ts` plus `prompts/segment-summary.ts` system prompt and 80 unit tests. Forced tool use (`submit_segment_analysis`) for structured output, zod validation, quote-fidelity check (with curly→straight normalization), single retry via tool_result block on schema/fidelity errors, returns null on transient errors or after exhausted retries. Per-call cost telemetry includes separated cache_read/cache_creation tokens at the discounted rate. SDK timeout pinned to 30s. |
 | **Phase D — Design & UI** | | | |
 | U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
@@ -223,11 +223,14 @@ ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`.
 - ✅ **#1 (P0):** `createSupabaseServerClient` no longer accepts a `userId` parameter. `mintStubJwt(userId)` retains the impersonation primitive but throws if `NODE_ENV === "production"` and `userId !== PODIUM_USER_ID`. Tests use `vi.stubEnv` for the production-mode guard so NODE_ENV mutation doesn't leak across vitest workers.
 - ✅ **#5 (P1):** `0000_reset.sql` IF EXISTS list now covers v1 tables (universes, segments, cards, feedback, api_calls, system_alerts, ingest_jobs). A prominent destructive-replay warning is at the top of the file — `supabase db reset` against the live project would now wipe v1 data, so the warning makes the blast radius visible to the next reader.
 
-**Pre-U8 (before the daily worker writes its first row):**
+**Pre-U8 — RESOLVED:**
 
-- **#3 (P1):** Drop `read by authenticated` SELECT policies on `api_calls`, `system_alerts`, `ingest_jobs`. Latent in v1 single-user; leaks operational metadata in v3. Plan says "policies do not change between versions" so fixing now is correct.
-- **#4 (P1):** Document in `lib/supabase/server.ts` that writes to `api_calls`/`system_alerts`/`ingest_jobs` MUST use `getSupabaseAdmin()` — the SELECT-only policies otherwise silently reject INSERTs from the user-scoped client.
-- **NEW (U7 follow-up, P1):** Slug→id resolution for entities + podcasts. The universe ships entity slugs but Particle's mentions endpoint requires `entity_id`; same for `podcast_id` on list-episodes. Either (a) cache IDs in `universes.entities_resolved jsonb` + `podcasts.particle_id text` columns at seed time, or (b) resolve in-memory per worker run via `listEntities`/`listPodcasts`. Recommend (a) — one-time cost, no runtime API spend.
+- ✅ **#3 (P1):** Migration `0010_drop_operational_select_policies.sql` dropped the `read by authenticated` SELECT policies on api_calls / system_alerts / ingest_jobs. RLS still enabled; zero policies = service-role-only.
+- ✅ **#4 (P1):** Documented in `lib/supabase/admin.ts` and `lib/supabase/server.ts` that operational table writes MUST go through `getSupabaseAdmin()`.
+- ✅ **U7 follow-up:** Migration `0009_resolved_ids.sql` adds `podcasts.particle_id text` + `universes.entity_id_map jsonb`. Seed runner extended with optional `SeedParticleResolver` that resolves slug→id at seed time via raw `/v1/podcasts` and `/v1/entities` calls (no cost telemetry; one-off op). The seed runs through the live API once during setup; daily worker reads cached IDs.
+
+**Pre-U8 (still pending):**
+
 - **#16 (P2):** Generate Supabase TS types via `supabase gen types typescript --linked > lib/supabase/database.types.ts` and parameterize `createClient<Database>` so `.from()` returns are typed.
 
 **Pre-U4 deploy:**

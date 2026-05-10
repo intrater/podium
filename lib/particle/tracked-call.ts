@@ -24,7 +24,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { env } from "@/lib/env";
+import { env } from "../env.ts";
 
 import {
   PARTICLE_PRICE_USD,
@@ -33,7 +33,7 @@ import {
   ParticleSchemaError,
   ParticleTransientError,
   type ParticleTier,
-} from "./types";
+} from "./types.ts";
 
 const BASE_BACKOFF_MS = 250;
 const MAX_BACKOFF_MS = 5_000;

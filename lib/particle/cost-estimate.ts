@@ -20,7 +20,7 @@
  * assumption constants here — the API surface stays stable.
  */
 
-import { PARTICLE_PRICE_USD, type ParticleTier } from "./types";
+import { PARTICLE_PRICE_USD, type ParticleTier } from "./types.ts";
 
 export interface UniverseShape {
   entities: readonly string[];

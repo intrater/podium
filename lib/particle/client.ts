@@ -21,7 +21,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { trackedCall, type Fetcher } from "./tracked-call";
+import { trackedCall, type Fetcher } from "./tracked-call.ts";
 import type {
   PaginatedResponse,
   ParticleClip,
@@ -33,7 +33,7 @@ import type {
   ParticleSearchResult,
   ParticleTier,
   ParticleWordTranscript,
-} from "./types";
+} from "./types.ts";
 
 const BASE_URL = "https://api.particle.pro";
 

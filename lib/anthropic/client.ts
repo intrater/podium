@@ -22,14 +22,14 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { env } from "@/lib/env";
+import { env } from "../env.ts";
 
 import {
   AnthropicTransientError,
   ANTHROPIC_MODEL,
   computeCallCost,
   type AnthropicUsage,
-} from "./types";
+} from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 

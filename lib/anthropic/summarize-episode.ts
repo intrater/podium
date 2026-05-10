@@ -17,15 +17,15 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 
-import type { AnthropicClient } from "@/lib/anthropic/client";
-import { findToolUse } from "@/lib/anthropic/summarize";
+import type { AnthropicClient } from "./client.ts";
+import { findToolUse } from "./summarize.ts";
 import {
   ANTHROPIC_MODEL,
   AnthropicSchemaError,
   AnthropicTransientError,
   type EpisodeSummary,
   type EpisodeSummaryInput,
-} from "@/lib/anthropic/types";
+} from "./types.ts";
 
 const TOOL_NAME = "submit_episode_summary";
 

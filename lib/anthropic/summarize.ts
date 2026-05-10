@@ -26,8 +26,8 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 
-import type { AnthropicClient } from "@/lib/anthropic/client";
-import { buildSegmentSummarySystemPrompt } from "@/lib/anthropic/prompts/segment-summary";
+import type { AnthropicClient } from "./client.ts";
+import { buildSegmentSummarySystemPrompt } from "./prompts/segment-summary.ts";
 import {
   ANTHROPIC_MODEL,
   AnthropicError,
@@ -36,7 +36,7 @@ import {
   AnthropicTransientError,
   type SegmentSummary,
   type SegmentSummaryInput,
-} from "@/lib/anthropic/types";
+} from "./types.ts";
 
 const TOOL_NAME = "submit_segment_analysis";
 

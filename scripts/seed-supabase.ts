@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { createSeedParticleResolver } from "../lib/seed/particle-resolver.ts";
 import { runSeed } from "../lib/seed/index.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -33,13 +34,24 @@ const supabase = createClient(url, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 
-const result = await runSeed(supabase, { podiumUserId, podiumUserEmail });
+const particle = process.env.PARTICLE_API_KEY
+  ? createSeedParticleResolver(process.env.PARTICLE_API_KEY)
+  : undefined;
+if (!particle) {
+  console.warn(
+    "PARTICLE_API_KEY not set — skipping slug→id resolution. Re-run with the key set to populate particle_id and entity_id_map.",
+  );
+}
+
+const result = await runSeed(supabase, { podiumUserId, podiumUserEmail, particle });
 
 console.log("Seed complete.");
-console.log(`  auth user:   ${result.authUserCreated ? "created" : "already existed"}`);
-console.log(`  teams:       ${result.teamsUpserted} upserted`);
-console.log(`  universe:    ${result.universeUpserted} upserted`);
-console.log(`  podcasts:    ${result.podcastsUpserted} upserted`);
+console.log(`  auth user:        ${result.authUserCreated ? "created" : "already existed"}`);
+console.log(`  teams:            ${result.teamsUpserted} upserted`);
+console.log(`  universe:         ${result.universeUpserted} upserted`);
+console.log(`  podcasts:         ${result.podcastsUpserted} upserted`);
+console.log(`  podcast ids:      ${result.podcastIdsResolved} resolved this run`);
+console.log(`  entity ids:       ${result.entityIdsResolved} resolved this run`);
 
 function required(key: string): string {
   const value = process.env[key];

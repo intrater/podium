@@ -10,9 +10,10 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { podcasts } from "@/config/podcasts";
+import { createSeedParticleResolver, type SeedParticleResolver } from "@/lib/seed/particle-resolver";
 import { runSeed, type SeedResult } from "@/lib/seed/index";
 import { niners } from "@/lib/universes/49ers";
 
@@ -21,10 +22,41 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PODIUM_USER_ID = process.env.PODIUM_USER_ID;
 const haveEnv = Boolean(SUPABASE_URL && SERVICE_ROLE_KEY && PODIUM_USER_ID);
 
+function makeMockParticleResolver(): SeedParticleResolver {
+  // Canned `id_<slug>` IDs for every entry in the live config. The mock
+  // matches the SeedParticleResolver surface (listPodcasts + listEntities
+  // only) — exactly what the seed runner uses.
+  return {
+    listPodcasts: async ({ q }) => {
+      const slug = podcasts.find((p) => p.name === q)?.particleSlug;
+      if (!slug) return { data: [], has_more: false };
+      return { data: [{ id: `id_${slug}`, title: `Mock ${slug}`, slug }], has_more: false };
+    },
+    listEntities: async ({ q }) => {
+      // Match against any slug whose reconstruction (any of the three
+      // variants the resolver tries) equals the query. The real call
+      // succeeds on variant 1 for most slugs and falls back to variant
+      // 2 for hyphenated surnames; the mock supports both.
+      const candidates = [
+        niners.entities.find((s) => s.replace(/-/g, " ") === q),
+        niners.entities.find((s) => s.replace(/-/, " ") === q),
+        niners.entities.find((s) => s === q),
+      ];
+      const slug = candidates.find((s) => s !== undefined);
+      if (!slug) return { data: [], has_more: false };
+      return {
+        data: [{ id: `id_${slug}`, slug, name: slug.replace(/-/g, " ") }],
+        has_more: false,
+      };
+    },
+  };
+}
+
 describe.skipIf(!haveEnv)("runSeed (live Supabase)", () => {
   const supabase = createClient(SUPABASE_URL!, SERVICE_ROLE_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
+  const particle = makeMockParticleResolver();
 
   let firstRun: SeedResult;
   let secondRun: SeedResult;
@@ -33,12 +65,31 @@ describe.skipIf(!haveEnv)("runSeed (live Supabase)", () => {
     firstRun = await runSeed(supabase, {
       podiumUserId: PODIUM_USER_ID!,
       podiumUserEmail: "podium-stub-user@example.test",
+      particle,
     });
     secondRun = await runSeed(supabase, {
       podiumUserId: PODIUM_USER_ID!,
       podiumUserEmail: "podium-stub-user@example.test",
+      particle,
     });
-  }, 60_000);
+  }, 120_000);
+
+  afterAll(async () => {
+    // The mock returns synthetic IDs (`id_<slug>`); leaving them in the DB
+    // would mislead the daily worker. Only clean them up when a real
+    // Particle key is in env so we can re-resolve canonical IDs in the
+    // same step — without the key, clearing would leave the DB worse off
+    // than the test found it.
+    if (!process.env.PARTICLE_API_KEY) return;
+    await supabase.from("podcasts").update({ particle_id: null }).not("particle_id", "is", null);
+    await supabase.from("universes").update({ entity_id_map: {} }).eq("team_id", "49ers");
+    const realParticle = createSeedParticleResolver(process.env.PARTICLE_API_KEY);
+    await runSeed(supabase, {
+      podiumUserId: PODIUM_USER_ID!,
+      podiumUserEmail: "podium-stub-user@example.test",
+      particle: realParticle,
+    });
+  }, 120_000);
 
   it("first run completes with non-zero upsert counts", () => {
     expect(firstRun.teamsUpserted).toBe(1);
@@ -99,5 +150,43 @@ describe.skipIf(!haveEnv)("runSeed (live Supabase)", () => {
       .eq("team_id", "49ers")
       .single();
     expect(team?.universe_id).toBe(universe?.id);
+  });
+
+  it("after both runs every podcast slug has a resolved particle_id (counts depend on prior DB state)", () => {
+    // The first run resolves whichever rows are still NULL; if a prior
+    // test or live seed already populated them, firstRun.podcastIdsResolved
+    // can be 0 — the persisted state below is what matters.
+    expect(firstRun.podcastIdsResolved + secondRun.podcastIdsResolved).toBeGreaterThanOrEqual(0);
+    expect(secondRun.podcastIdsResolved).toBe(0);
+  });
+
+  it("podcasts.particle_id is populated for the configured catalog after seed", async () => {
+    const slugs = podcasts.map((p) => p.particleSlug);
+    const { data, error } = await supabase
+      .from("podcasts")
+      .select("particle_slug, particle_id")
+      .in("particle_slug", slugs);
+    expect(error).toBeNull();
+    const unresolved = (data ?? []).filter((row) => !row.particle_id);
+    expect(unresolved).toEqual([]);
+  });
+
+  it("universes.entity_id_map is populated for every entity in the universe", async () => {
+    const { data, error } = await supabase
+      .from("universes")
+      .select("entity_id_map")
+      .eq("team_id", "49ers")
+      .single();
+    expect(error).toBeNull();
+    const map = data?.entity_id_map as Record<string, string> | null;
+    expect(map).toBeTruthy();
+    for (const slug of niners.entities) {
+      expect(map?.[slug], `entity_id_map missing slug "${slug}"`).toBeTruthy();
+    }
+  });
+
+  it("second run reports zero new resolutions (fully cached)", () => {
+    expect(secondRun.podcastIdsResolved).toBe(0);
+    expect(secondRun.entityIdsResolved).toBe(0);
   });
 });

@@ -8,7 +8,7 @@
  * that with the team context + format rules + few-shot examples.
  */
 
-import type { TeamContext } from "@/lib/anthropic/types";
+import type { TeamContext } from "../types.ts";
 
 const SHARED_RULES = `You are a sports content analyst. Your job is to take a podcast segment's transcript and surface the parts that are genuinely about a specific sports team — for fans who want to know what was said, not browse the whole episode.
 

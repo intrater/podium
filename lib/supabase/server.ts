@@ -7,6 +7,11 @@
  * v3 — the smoke tests in __tests__/lib/supabase/server.test.ts exercise
  * this path.
  *
+ * **Do not use this client to read or write `api_calls`, `system_alerts`,
+ * or `ingest_jobs`.** Those tables are service-role-only after migration
+ * 0010. Use `getSupabaseAdmin()` from `lib/supabase/admin.ts` for any
+ * operational telemetry path.
+ *
  * The function takes **no parameters by design.** Accepting a `userId` here
  * would let any route handler that forwards user input ("?as=<uuid>")
  * impersonate other accounts the moment v3 multi-user auth lands. Tests

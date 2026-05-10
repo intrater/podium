@@ -8,6 +8,16 @@
  * explicit user_id filter when it touches a user-scoped table; the RLS
  * policies are not there to catch mistakes.
  *
+ * **Operational tables require this client.** Migration 0010 dropped the
+ * `read by authenticated` SELECT policies on `api_calls`, `system_alerts`,
+ * and `ingest_jobs`, which leaves those tables with RLS enabled and zero
+ * policies — i.e. service-role-only. Any code that reads or writes those
+ * three tables must import `getSupabaseAdmin()` from here, not the
+ * user-scoped client from `lib/supabase/server.ts`. The cost-telemetry
+ * wrappers in `lib/particle/tracked-call.ts` and `lib/anthropic/client.ts`
+ * accept whatever `SupabaseClient` the caller passes, so the discipline
+ * lives at the call site.
+ *
  * **Never import this from a client component.** The service role key is
  * a forge-everything credential.
  */
