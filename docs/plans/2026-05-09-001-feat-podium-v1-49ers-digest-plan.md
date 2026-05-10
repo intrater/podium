@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (Pre-U8 follow-ups landed; U8 unblocked)
+Last updated: 2026-05-10 (U8 pipeline core landed; route handlers + Edge Function pending)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -199,7 +199,7 @@ Last updated: 2026-05-10 (Pre-U8 follow-ups landed; U8 unblocked)
 | U6 | Niners universe + seed | **done** | `config/podcasts.ts` (31 catalog-resident podcasts; 7 team-specific + 24 national), `config/teams.ts` (49ers OKLCH palette), `lib/universes/49ers.ts` (30 verified entity slugs + 8 storylines), `lib/seed/index.ts` (idempotent runner), `scripts/seed-supabase.ts` (`npm run seed`), tests covering schema validity, slug pattern, kind thresholds, and live-DB idempotency. Migration `0008_universes_team_id_unique.sql` added UNIQUE(team_id) so concurrent seed runs can't insert duplicate universe rows (resolves residual #17). |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **done** | `lib/particle/{types,tracked-call,client,cost-estimate}.ts` plus 9 contract snapshots and 65 unit tests. Hardcoded per-endpoint tier mapping (search/mentions/clip/transcripts = premium; list endpoints = standard). Retry policy covers 408/429/5xx; 401 + 422 are terminal; AbortSignal short-circuits; default 30s timeout per attempt. **NEW finding for U8:** Particle's mentions endpoint requires `entity_id` (NOT slug), and list-episodes requires `podcast_id` (NOT slug). The U6 universe + podcasts ship as slugs only; U8 must resolve slug→id at worker startup via `listEntities` and `listPodcasts`, and cache the IDs (either in-memory per-run or by adding columns in a follow-up migration). |
-| U8 | Daily ingestion worker | **next** | All blockers resolved. Slug→id resolution shipped as part of the Pre-U8 bundle (migration 0009 + lib/seed/particle-resolver.ts; live DB now carries 31/31 podcast IDs and 30/30 entity IDs). |
+| U8 | Daily ingestion worker | **in progress** | Pipeline core (`lib/ingest/{types,pipeline}.ts`) + 4-scenario integration test landed. Universe-driven fan-out → dedup → transcript fetch → summarize → persist is wired. Still pending: manual trigger route handler, status endpoint, INGEST_DEV_MODE gate, pre-flight cost gate, sharded orchestration, Deno Edge Function mirror, pg_cron schedule. |
 | U9 | Claude Haiku summarization | **done** | `lib/anthropic/{client,summarize,summarize-episode,types}.ts` plus `prompts/segment-summary.ts` system prompt and 80 unit tests. Forced tool use (`submit_segment_analysis`) for structured output, zod validation, quote-fidelity check (with curly→straight normalization), single retry via tool_result block on schema/fidelity errors, returns null on transient errors or after exhausted retries. Per-call cost telemetry includes separated cache_read/cache_creation tokens at the discounted rate. SDK timeout pinned to 30s. |
 | **Phase D — Design & UI** | | | |
 | U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
