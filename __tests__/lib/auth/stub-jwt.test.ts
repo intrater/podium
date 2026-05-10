@@ -1,5 +1,5 @@
 import { jwtVerify } from "jose";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mintStubJwt } from "@/lib/auth/stub-jwt";
 
@@ -40,5 +40,17 @@ describe("mintStubJwt", () => {
     const { payload: payloadB } = await jwtVerify(tokenB, secret);
     expect(payloadA.sub).toBe(userA);
     expect(payloadB.sub).toBe(userB);
+  });
+
+  describe("production guard against impersonation", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("throws if a non-default userId is requested in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const otherId = "00000000-0000-4000-8000-000000000888";
+      await expect(mintStubJwt(otherId)).rejects.toThrow(/impersonate/i);
+    });
   });
 });

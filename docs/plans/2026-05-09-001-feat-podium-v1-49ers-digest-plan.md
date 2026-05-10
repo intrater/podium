@@ -185,7 +185,7 @@ The implementer may adjust the structure if a better layout becomes clear; per-u
 
 ## Unit Status
 
-Last updated: 2026-05-10 (post-U5 + code review)
+Last updated: 2026-05-10 (post-U5 follow-ups; pre-U6 residuals resolved)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -195,8 +195,8 @@ Last updated: 2026-05-10 (post-U5 + code review)
 | U3 | Env, secrets, Supabase projects | **done** | `lib/env.ts`, `.env.local.example`, setup walkthrough, `.env.local` populated, build verified. Vercel env vars pending (needed for deploy, not local dev). |
 | U4 | Domain → Vercel | **not started** | User adds DNS records at registrar. Only needed for production deploy. |
 | **Phase B — Data layer** | | | |
-| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0006 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite (10 tests) passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. ce-code-review pass landed 7 follow-up fixes (commit `31ce6ba`); 18 findings deferred — see "Residual review findings (U5 follow-up)" below. |
-| U6 | Niners universe + seed | **not started** | Blocked on U5. Predicted slugs confirmed 100% accurate for 49ers — universe is just data, no startup resolution script. Curated 31-podcast list defined against live catalog (5-min sweep). **Worth addressing review finding #2 (feedback cross-user `card_id` RLS gap, P1) before U6 inserts data.** |
+| U5 | Schema + RLS + stub-auth | **done** | Migrations 0000–0007 applied to Supabase project `fszzncbglomjtsardyej`. RLS smoke suite passes against the live DB. v1 ships against a single Supabase project (no separate staging) — split deferred until pre-launch. ce-code-review pass landed 7 follow-up fixes (commit `31ce6ba`); pre-U6 residuals (#1, #2, #5) landed in the U5 follow-up bundle plus six review-driven hardening fixes (vi.stubEnv, positive-path RLS test, db-reset warning, …) — see "Residual review findings (U5 follow-up)" below for what remains. |
+| U6 | Niners universe + seed | **next** | Unblocked. Predicted slugs confirmed 100% accurate for 49ers — universe is just data, no startup resolution script. Curated 31-podcast list defined against live catalog (5-min sweep). |
 | **Phase C — Ingestion & summarization** | | | |
 | U7 | Particle client + cost telemetry | **not started** | Blocked on U5 (`api_calls` table). Response shape now fully verified; rate-limit handling can be simple (10k/min ceiling). |
 | U8 | Daily ingestion worker | **not started** | Blocked on U6, U7, U9. |
@@ -215,13 +215,13 @@ Last updated: 2026-05-10 (post-U5 + code review)
 
 ### Residual review findings (U5 follow-up)
 
-ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`. The following are deferred — most should land in dedicated follow-up units, but a few are worth addressing **before U6 starts seeding data** (flagged ⚠️). Full per-reviewer artifacts at `/tmp/compound-engineering/ce-code-review/20260510-075735-df032d88/` (ephemeral; capture findings in PR descriptions or solutions docs if needed long-term).
+ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`. The pre-U6 residuals (#1, #2, #5) landed in the follow-up bundle (commit TBD) along with six hardening fixes from a second ce-code-review pass on the bundle itself.
 
-**Pre-U6 (10–30 min total):**
+**Pre-U6 — RESOLVED:**
 
-- ⚠️ **#2 (P1, anchor 100, 3 reviewers):** `feedback` RLS WITH CHECK only validates `user_id`; user A can attach feedback to user B's `card_id`. Fix: tighten WITH CHECK to require `card_id IS NULL OR EXISTS (SELECT 1 FROM cards WHERE id = card_id AND user_id = auth.uid())`. New migration; add a smoke test.
-- ⚠️ **#1 (P0, anchor 75):** `createSupabaseServerClient(userId?)` accepts arbitrary userId — forge-everything primitive. Drop the param for v1; expose impersonation only via a test-only helper gated behind `NODE_ENV !== 'production'`.
-- ⚠️ **#5 (P1):** `0000_reset.sql` only drops the prior Apple-based tables. If a partial v1 schema ever needs replay, 0000 won't clean it and 0001 collides. Add v1 tables to the reset's IF EXISTS list.
+- ✅ **#2 (P1):** `feedback` RLS WITH CHECK now requires any non-null `card_id` to belong to the authed user (migration `0007_feedback_card_owner_check.sql`). Cross-user smoke test plus a positive-path test (B inserts feedback against B's own card → succeeds) lock down both sides of the policy.
+- ✅ **#1 (P0):** `createSupabaseServerClient` no longer accepts a `userId` parameter. `mintStubJwt(userId)` retains the impersonation primitive but throws if `NODE_ENV === "production"` and `userId !== PODIUM_USER_ID`. Tests use `vi.stubEnv` for the production-mode guard so NODE_ENV mutation doesn't leak across vitest workers.
+- ✅ **#5 (P1):** `0000_reset.sql` IF EXISTS list now covers v1 tables (universes, segments, cards, feedback, api_calls, system_alerts, ingest_jobs). A prominent destructive-replay warning is at the top of the file — `supabase db reset` against the live project would now wipe v1 data, so the warning makes the blast radius visible to the next reader.
 
 **Pre-U7 (when ingestion + cost telemetry come online):**
 

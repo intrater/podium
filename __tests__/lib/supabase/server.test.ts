@@ -154,6 +154,52 @@ describe("RLS — cross-user write rejection (security-critical)", () => {
     expect(error?.message ?? "").toMatch(/row-level security/i);
   });
 
+  it("B cannot attach feedback to A's card_id even when user_id=B (covers card_id WITH CHECK)", async () => {
+    // Without the card_id branch of WITH CHECK, this insert satisfies
+    // user_id = auth.uid() and would silently surface against A's card.
+    const supabase = await clientForUser(fixture.userBId!);
+    const { error } = await supabase.from("feedback").insert({
+      user_id: fixture.userBId,
+      card_id: fixture.cardId,
+      verdict: "love",
+    });
+    expect(error).not.toBeNull();
+    expect(error?.code).toBe("42501");
+    expect(error?.message ?? "").toMatch(/row-level security/i);
+  });
+
+  it("B can insert feedback against B's own card (positive path; proves the WITH CHECK isn't over-restrictive)", async () => {
+    const admin = getSupabaseAdmin();
+    const { data: bCard, error: bCardErr } = await admin
+      .from("cards")
+      .insert({
+        user_id: fixture.userBId,
+        team_id: fixture.teamId,
+        episode_id: fixture.episodeId,
+      })
+      .select("id")
+      .single();
+    expect(bCardErr).toBeNull();
+
+    try {
+      const supabase = await clientForUser(fixture.userBId!);
+      const { data, error } = await supabase
+        .from("feedback")
+        .insert({
+          user_id: fixture.userBId,
+          card_id: bCard!.id,
+          verdict: "love",
+        })
+        .select("id")
+        .single();
+      expect(error).toBeNull();
+      expect(data?.id).toBeTruthy();
+      if (data?.id) await admin.from("feedback").delete().eq("id", data.id);
+    } finally {
+      await admin.from("cards").delete().eq("id", bCard!.id);
+    }
+  });
+
   it("service role bypasses RLS — admin client reads A's card without a JWT", async () => {
     const admin = getSupabaseAdmin();
     const { data, error } = await admin.from("cards").select("id, user_id").eq("id", fixture.cardId!);

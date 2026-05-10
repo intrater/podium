@@ -36,8 +36,19 @@ const cache = new Map<string, { token: string; expiresAt: number }>();
  * so caching across requests is safe; misses cost a single HMAC-SHA256 sign.
  * The cache is keyed by user id so impersonation in tests does not poison
  * the production token.
+ *
+ * **Production guard.** Passing a `userId` other than the configured
+ * `PODIUM_USER_ID` is impersonation. That capability is fine in tests — the
+ * RLS smoke suite needs it — but in production it would be a forge-anyone
+ * primitive. Throw at runtime if production code reaches for it.
  */
 export async function mintStubJwt(userId: string = env.PODIUM_USER_ID): Promise<string> {
+  if (userId !== env.PODIUM_USER_ID && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "mintStubJwt: refusing to impersonate a non-default user in production",
+    );
+  }
+
   const now = Math.floor(Date.now() / 1000);
 
   const cached = cache.get(userId);
