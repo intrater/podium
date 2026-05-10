@@ -5,7 +5,9 @@ plan-id: 2026-05-09-001
 type: feat
 title: "Podium v1 — 49ers podcast digest"
 origin: docs/brainstorms/podium-v1-requirements.md
-revised: 2026-05-09 (round 1 — applied ce-doc-review findings: P0 architectural fix, ~10 P1 fixes, ~10 P2 fixes, 6 safe-auto fixes)
+revised: 2026-05-09 (round 2 — added unit status tracker, updated frontmatter)
+prior-revisions:
+  - 2026-05-09 round 1 — applied ce-doc-review findings (P0 architectural fix, ~10 P1 fixes, ~10 P2 fixes, 6 safe-auto fixes)
 ---
 
 # feat: Podium v1 — 49ers podcast digest
@@ -178,6 +180,38 @@ podium/
 ```
 
 The implementer may adjust the structure if a better layout becomes clear; per-unit `**Files:**` sections are authoritative.
+
+---
+
+## Unit Status
+
+Last updated: 2026-05-09
+
+| Unit | Name | Status | Notes |
+|------|------|--------|-------|
+| **Phase A — Foundation & verification** | | | |
+| U1 | Particle API verification | **done (docs)** | Docs-based verification complete (8 dimensions). 6 empirical tests need live API calls — blocked on user laptop session. |
+| U2 | Next.js scaffold | **done** | Next.js 16 + Tailwind v4 + shadcn/ui + Motion. All files in place, builds clean. |
+| U3 | Env, secrets, Supabase projects | **done** | `lib/env.ts`, `.env.local.example`, setup walkthrough, `.env.local` populated, build verified. Vercel env vars pending (needed for deploy, not local dev). |
+| U4 | Domain → Vercel | **not started** | User adds DNS records at registrar. Only needed for production deploy. |
+| **Phase B — Data layer** | | | |
+| U5 | Schema + RLS + stub-auth | **not started** | Next up. Supabase project exists and is healthy. |
+| U6 | Niners universe + seed | **not started** | Blocked on U5 (tables must exist). Will use predicted entity slugs; U1 empirical confirms later. |
+| **Phase C — Ingestion & summarization** | | | |
+| U7 | Particle client + cost telemetry | **not started** | Blocked on U5 (`api_calls` table) and U1 empirical (response shapes). |
+| U8 | Daily ingestion worker | **not started** | Blocked on U6, U7, U9. |
+| U9 | Claude Haiku summarization | **not started** | Blocked on U5 (`segments` table) and U7 (segment shape). |
+| **Phase D — Design & UI** | | | |
+| U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
+| U11 | Digest card grid | **not started** | Blocked on U5, U10. |
+| U12 | MVP audio player | **not started** | Blocked on U1 empirical (audio URL behavior), U10, U11. |
+| U13 | Feedback bar | **not started** | Blocked on U5, U11, U12. |
+
+### What's blocked on the user
+
+1. **U1 empirical tests** — run live Particle API calls from a terminal (entity slug lookups, audio URL HEAD request, catalog hit-rate check, segment length sampling). ~30–60 min. Not blocking U5–U9 code work; needed before first real ingest run.
+2. **U4 DNS** — add Vercel DNS records at the `podiumsports.app` registrar. ~5 min. Only needed for production deploy.
+3. **Vercel env vars** — mirror `.env.local` values into Vercel project settings (Production → prod Supabase keys; Preview → staging keys). Needed for deploys, not local dev.
 
 ---
 
