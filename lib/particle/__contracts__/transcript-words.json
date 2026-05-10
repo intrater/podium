@@ -1,0 +1,20 @@
+{
+    "episode_id": "6r7MPZUxcEeEks6MGupYsI",
+    "language": "eng",
+    "words": [
+        {
+            "text": "Meet",
+            "type": "word",
+            "start_seconds": 0.84,
+            "end_seconds": 1.26,
+            "speaker": "speaker_0"
+        },
+        {
+            "text": " ",
+            "type": "spacing",
+            "start_seconds": 1.26,
+            "end_seconds": 1.32,
+            "speaker": "speaker_0"
+        }
+    ]
+}

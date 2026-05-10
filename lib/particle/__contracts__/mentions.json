@@ -1,0 +1,85 @@
+{
+    "data": [
+        {
+            "episode": {
+                "id": "7ldDd7YlyawNixJmc9yh4Y",
+                "slug": "fantasy-edge-fantasy-adp-movement-best-ball-strategy-pt-1-w-adam-levitan",
+                "title": "Fantasy Edge - Fantasy ADP Movement & Best Ball Strategy Pt. 1  w/ Adam Levitan",
+                "published_at": "2026-05-10T10:00:00Z",
+                "podcast": {
+                    "id": "57rRS8Mb5RxxhUQJ6C6TlL",
+                    "title": "PlayerProfiler Fantasy Football Podcast Network",
+                    "slug": "playerprofiler-fantasy-football-podcast-network",
+                    "image_url": "https://cdn.particle.pro/url/media/a87362fe-c58e-5223-9356-20e4abaf5c7b/ff791cde03d6e1b5c81ae44673fb857acb9d5df66d149754c8ea16d40aa1afdb"
+                }
+            },
+            "mention_count": 1,
+            "mention_variants": [
+                "Brock Purdy"
+            ],
+            "windows": [
+                {
+                    "segment": {
+                        "id": "3nZGOuPKCv63O0VIvf6C8F",
+                        "type": "INTERVIEW",
+                        "title": "QB Market Movers and the Saints Offense"
+                    },
+                    "start_seconds": 546.044,
+                    "end_seconds": 587.724,
+                    "lines": [
+                        {
+                            "number": 109,
+                            "speaker": "Adam Levitan",
+                            "role": "GUEST",
+                            "start_seconds": 546.044,
+                            "end_seconds": 546.124,
+                            "text": "Yeah"
+                        },
+                        {
+                            "number": 110,
+                            "speaker": "Chris Dell",
+                            "role": "HOST",
+                            "start_seconds": 546.224,
+                            "end_seconds": 547.924,
+                            "text": "... interesting to see how that plays out for sure."
+                        },
+                        {
+                            "number": 111,
+                            "speaker": "Chris Dell",
+                            "role": "HOST",
+                            "start_seconds": 547.964,
+                            "end_seconds": 561.444,
+                            "text": "Because it's like, you know, got, having him in that same spot around Brock Purdy, Bo Nix, um, makes sense, but, like, can you really put him in a tier above those guys? I think that's, again, what you said, like I think that's probably taking it a little bit too far.",
+                            "is_mention": true
+                        },
+                        {
+                            "number": 112,
+                            "speaker": "Chris Dell",
+                            "role": "HOST",
+                            "start_seconds": 561.664,
+                            "end_seconds": 563.584,
+                            "text": "Uh, it, it'll be interesting to see how that shakes out."
+                        },
+                        {
+                            "number": 113,
+                            "speaker": "Chris Dell",
+                            "role": "HOST",
+                            "start_seconds": 564.084,
+                            "end_seconds": 587.724,
+                            "text": "Talking about the, um, the running back position in terms of risers, obviously Jahdarian Price going at the end of round one to Seattle, and there's a lot of things still, uh, that are going to shake out there, right? Like when is Charbonnet gonna be back? How is it, how are we going to see George Holani versus Emmanuel Wilson? Is there any specific running back that you prefer to target out of those four when it comes to ADP, and what are your thoughts on Seattle's backfield right now?"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "has_more": true,
+    "cursor": "s.1hwwoMp35xaHpFlyhaC7Ab9cBtL1uBOaoBp8",
+    "entity": {
+        "id": "1GmOP1C2zBHewl4l6q",
+        "slug": "brock-purdy",
+        "name": "Brock Purdy",
+        "description": "American football quarterback",
+        "wikipedia_url": "https://en.wikipedia.org/wiki/Brock_Purdy"
+    }
+}

@@ -1,0 +1,45 @@
+{
+    "data": [
+        {
+            "id": "4NKXwNsdf9pCCbkWsqAraL",
+            "title": "Locked On 49ers - Daily Podcast On The San Francisco 49ers",
+            "slug": "locked-on-49ers",
+            "description": "Locked On 49ers podcast is your daily ticket to stay ahead of the game and the first to know the latest news, analysis, and insider info for the San Francisco 49ers and the National Football League. Hosted by Brian Peacock and former NFL player Eric Crocker, the Locked On 49ers podcast provides your daily 49ers fix with expert, local analysis, and coverage of all aspects of the 49ers franchise. The Locked On 49ers podcast takes you beyond the scoreboard for the inside scoops on the biggest stories from within the 49ers locker room and all over the NFL.\u202fThe Locked On 49ers podcast is part of the Locked On Podcast Network. Your Team. Every Day.",
+            "url": "https://feeds.simplecast.com/P83yLSb_",
+            "image_url": "https://cdn.particle.pro/url/media/8fcab919-107e-5afd-b17a-72defab2fcd1/e0ec92a0f528cb5710a70ae13304b62587cca699aad77389d0c27afca2314a0c",
+            "language": "en",
+            "explicit": false,
+            "episode_count": 84,
+            "speakers": [
+                {
+                    "name": "Brian Peacock",
+                    "role": "HOST",
+                    "occurrences": 57
+                },
+                {
+                    "name": "Eric Crocker",
+                    "role": "HOST",
+                    "occurrences": 57,
+                    "entity": {
+                        "id": "17PzxGLo2CpQWc",
+                        "slug": "eric-crocker",
+                        "name": "Eric Crocker",
+                        "description": "American football cornerback",
+                        "wikipedia_url": "http://en.wikipedia.org/wiki/Eric_Crocker"
+                    }
+                },
+                {
+                    "name": "Eric Engle",
+                    "role": "HOST",
+                    "occurrences": 15
+                },
+                {
+                    "name": "Eric Engel",
+                    "role": "HOST",
+                    "occurrences": 7
+                }
+            ]
+        }
+    ],
+    "has_more": false
+}

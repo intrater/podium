@@ -1,0 +1,249 @@
+{
+    "data": [
+        {
+            "episode": {
+                "id": "6r7MPZUxcEeEks6MGupYsI",
+                "slug": "maxx-crosby-makes-these-nfl-teams-instant-contenders-press-box",
+                "title": "Maxx Crosby Makes These NFL Teams INSTANT Contenders! | Press Box",
+                "published_at": "2026-03-05T02:32:20Z",
+                "podcast": {
+                    "id": "26RLFd6l678ldmB2c8eCUi",
+                    "title": "Players Choice",
+                    "slug": "players-choice",
+                    "image_url": "https://image.simplecastcdn.com/images/469ecb26-cfc7-4c85-8794-3d879f69140f/b07d1c12-6f2d-4f08-a539-8abff201b914/3000x3000/33075469-1669075464208-f0af2de3fd39a.jpg?aid=rss_feed"
+                }
+            },
+            "segment": {
+                "id": "6APOqRnnBDp0Vdr3UuaWes",
+                "episode": {
+                    "id": "6r7MPZUxcEeEks6MGupYsI",
+                    "slug": "maxx-crosby-makes-these-nfl-teams-instant-contenders-press-box",
+                    "title": "Maxx Crosby Makes These NFL Teams INSTANT Contenders! | Press Box",
+                    "published_at": "2026-03-05T02:32:20Z",
+                    "podcast": {
+                        "id": "26RLFd6l678ldmB2c8eCUi",
+                        "title": "Players Choice",
+                        "slug": "players-choice",
+                        "image_url": "https://image.simplecastcdn.com/images/469ecb26-cfc7-4c85-8794-3d879f69140f/b07d1c12-6f2d-4f08-a539-8abff201b914/3000x3000/33075469-1669075464208-f0af2de3fd39a.jpg?aid=rss_feed"
+                    }
+                },
+                "number": 37,
+                "type": "TOPIC_DISCUSSION",
+                "title": "Cowboys vs. 49ers: Different Roads, Same End",
+                "description": "Argument that 49ers are \u2018West Coast Cowboys\u2019\u2014both strong but fall short, with differing playoff depths.",
+                "summary": "Historic droughts compared\nConference/Super Bowl losses\nDivisional ceiling for Cowboys\nLabels spark spirited debate",
+                "start_seconds": 5380.698,
+                "end_seconds": 5461.754,
+                "duration_seconds": 81.056,
+                "audio_url": "https://cdn.particle.pro/podcast/episode/e14a9726-108f-451b-9d11-6cc8d402b916/segment/audio/caa861bc-806d-48a5-b64f-aeeb36d53446.mp3"
+            },
+            "windows": [
+                {
+                    "start_seconds": 5380.698,
+                    "end_seconds": 5383.518,
+                    "lines": [
+                        {
+                            "number": 2940,
+                            "speaker": "Trent",
+                            "role": "PANELIST",
+                            "start_seconds": 5380.698,
+                            "end_seconds": 5382.527,
+                            "text": "He says, so basically you would rather be a 49ers fan?",
+                            "is_match": true
+                        },
+                        {
+                            "number": 2941,
+                            "speaker": "Bama",
+                            "role": "PANELIST",
+                            "start_seconds": 5382.678,
+                            "end_seconds": 5383.518,
+                            "text": "We just, I'll shoot you."
+                        }
+                    ]
+                },
+                {
+                    "start_seconds": 5401.498,
+                    "end_seconds": 5407.188,
+                    "lines": [
+                        {
+                            "number": 2952,
+                            "speaker": "Trent",
+                            "role": "PANELIST",
+                            "start_seconds": 5401.498,
+                            "end_seconds": 5402.968,
+                            "text": "You can say no. I'm, I'm, I'm-"
+                        },
+                        {
+                            "number": 2953,
+                            "speaker": "speaker_5",
+                            "role": "HOST",
+                            "start_seconds": 5402.998,
+                            "end_seconds": 5405.228,
+                            "text": "Over the 49ers? I would rather be the 49ers than the Cowboys.",
+                            "is_match": true
+                        },
+                        {
+                            "number": 2954,
+                            "speaker": "Trent",
+                            "role": "PANELIST",
+                            "start_seconds": 5405.258,
+                            "end_seconds": 5406.698,
+                            "text": "Oh, I would rather be the 49ers.",
+                            "is_match": true
+                        },
+                        {
+                            "number": 2955,
+                            "speaker": "Trent",
+                            "role": "PANELIST",
+                            "start_seconds": 5406.738,
+                            "end_seconds": 5407.188,
+                            "text": "Yes, I'd rather be the 49ers."
+                        }
+                    ]
+                }
+            ],
+            "clips": [
+                {
+                    "id": "1wnMaQ5SWzEKv7dBM8yDQ",
+                    "episode": {
+                        "id": "6r7MPZUxcEeEks6MGupYsI",
+                        "slug": "maxx-crosby-makes-these-nfl-teams-instant-contenders-press-box",
+                        "title": "Maxx Crosby Makes These NFL Teams INSTANT Contenders! | Press Box",
+                        "published_at": "2026-03-05T02:32:20Z",
+                        "podcast": {
+                            "id": "26RLFd6l678ldmB2c8eCUi",
+                            "title": "Players Choice",
+                            "slug": "players-choice",
+                            "image_url": "https://image.simplecastcdn.com/images/469ecb26-cfc7-4c85-8794-3d879f69140f/b07d1c12-6f2d-4f08-a539-8abff201b914/3000x3000/33075469-1669075464208-f0af2de3fd39a.jpg?aid=rss_feed"
+                        }
+                    },
+                    "segment": {
+                        "id": "6APOqRnnBDp0Vdr3UuaWes",
+                        "type": "TOPIC_DISCUSSION",
+                        "title": "Cowboys vs. 49ers: Different Roads, Same End"
+                    },
+                    "type": "NOTABLE_LINE",
+                    "title": "49ers = West Coast Cowboys?",
+                    "description": "The group delivers a stinging analogy: the 49ers are the Cowboys with extra steps\u2014both perennial contenders who ultimately fall short.",
+                    "intro_statement": "A sharp comparison of NFL heartbreakers",
+                    "engagement_score": 74,
+                    "speaker": {
+                        "name": "Trent",
+                        "role": "PANELIST"
+                    },
+                    "start_seconds": 5425.918,
+                    "end_seconds": 5461.754,
+                    "duration_seconds": 35.836,
+                    "audio_url": "https://cdn.particle.pro/podcast/episode/e14a9726-108f-451b-9d11-6cc8d402b916/clip/audio/010852d3-fa22-4e14-8fd6-1b72cf13b330.mp3"
+                }
+            ],
+            "match": {
+                "source": "keyword",
+                "relevance_score": 12.058263778686523
+            }
+        },
+        {
+            "episode": {
+                "id": "4LIcdKvgxwqdFodA4utHWl",
+                "slug": "week-15-picks-best-bets-seahawks-bears-revenge",
+                "title": "Week 15 Picks, Best Bets: Seahawks & Bears revenge?",
+                "published_at": "2025-12-18T17:05:38Z",
+                "podcast": {
+                    "id": "446wN44WV2fSWDijYuE8r7",
+                    "title": "PFT Live with Mike Florio",
+                    "slug": "pft-live",
+                    "image_url": "https://www.omnycontent.com/d/playlist/006cbbeb-1b7a-4729-b380-b3df0127e8db/8e6865a3-daf5-49de-ab9f-b3df013312cd/bc6b5015-6def-4f8d-aee5-b3df013312d5/image.jpg?t=1769539083&size=Large"
+                }
+            },
+            "segment": {
+                "id": "6mD03gSU9tLAZ54j25SM00",
+                "episode": {
+                    "id": "4LIcdKvgxwqdFodA4utHWl",
+                    "slug": "week-15-picks-best-bets-seahawks-bears-revenge",
+                    "title": "Week 15 Picks, Best Bets: Seahawks & Bears revenge?",
+                    "published_at": "2025-12-18T17:05:38Z",
+                    "podcast": {
+                        "id": "446wN44WV2fSWDijYuE8r7",
+                        "title": "PFT Live with Mike Florio",
+                        "slug": "pft-live",
+                        "image_url": "https://www.omnycontent.com/d/playlist/006cbbeb-1b7a-4729-b380-b3df0127e8db/8e6865a3-daf5-49de-ab9f-b3df013312cd/bc6b5015-6def-4f8d-aee5-b3df013312d5/image.jpg?t=1769539083&size=Large"
+                    }
+                },
+                "number": 22,
+                "type": "TOPIC_DISCUSSION",
+                "title": "Monday Night: 49ers at Colts & Rivers Storyline",
+                "description": "Confidence in Shanahan vs. Colts zone, questions on Philip Rivers\u2019 arm, and consensus Niners cover.",
+                "summary": "Colts\u2019 short-pass reliance dissected\nShanahan\u2019s zone-busting schemes praised\nSimms 28-13, Florio 27-20 49ers\nDiscuss Rivers ratings boost for ESPN\nColts playoff hopes fading",
+                "start_seconds": 3295.412,
+                "end_seconds": 3391.15,
+                "duration_seconds": 95.738,
+                "audio_url": "https://cdn.particle.pro/podcast/episode/8eb72da3-4892-4e9d-b743-20671182cc7b/segment/audio/deb09872-789d-42a2-9af3-eb3e000ac5c8.mp3"
+            },
+            "windows": [
+                {
+                    "start_seconds": 3296.832,
+                    "end_seconds": 3321.772,
+                    "lines": [
+                        {
+                            "number": 973,
+                            "speaker": "Mike Florio",
+                            "role": "CO_HOST",
+                            "start_seconds": 3296.832,
+                            "end_seconds": 3298.052,
+                            "text": "Ooh, this will be a good one."
+                        },
+                        {
+                            "number": 974,
+                            "speaker": "Mike Florio",
+                            "role": "CO_HOST",
+                            "start_seconds": 3298.172,
+                            "end_seconds": 3299.032,
+                            "text": "49ers at the Colts.",
+                            "is_match": true
+                        },
+                        {
+                            "number": 975,
+                            "speaker": "Mike Florio",
+                            "role": "CO_HOST",
+                            "start_seconds": 3299.052,
+                            "end_seconds": 3300.512,
+                            "text": "Philip Rivers, game number two."
+                        },
+                        {
+                            "number": 976,
+                            "speaker": "Mike Florio",
+                            "role": "CO_HOST",
+                            "start_seconds": 3300.652,
+                            "end_seconds": 3310.072,
+                            "text": "49ers again, especially if the Seahawks win, 49ers in great position to try to be the disruptor and take over the NFC West crown and maybe the number one seed.",
+                            "is_match": true
+                        },
+                        {
+                            "number": 977,
+                            "speaker": "Mike Florio",
+                            "role": "CO_HOST",
+                            "start_seconds": 3310.092,
+                            "end_seconds": 3318.392,
+                            "text": "Do you like the 49ers on the road? They are favored by six and a half with an over under of 46.5.",
+                            "is_match": true
+                        },
+                        {
+                            "number": 978,
+                            "speaker": "Chris Simms",
+                            "role": "HOST",
+                            "start_seconds": 3318.492,
+                            "end_seconds": 3321.772,
+                            "text": "Yeah, I, I do like the 49ers, uh, 100%."
+                        }
+                    ]
+                }
+            ],
+            "match": {
+                "source": "keyword",
+                "relevance_score": 11.976320266723633
+            }
+        }
+    ],
+    "has_more": true,
+    "cursor": "r.4gfFC6"
+}

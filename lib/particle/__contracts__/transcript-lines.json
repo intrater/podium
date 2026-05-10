@@ -1,0 +1,42 @@
+{
+    "episode_id": "6r7MPZUxcEeEks6MGupYsI",
+    "language": "en-us",
+    "duration_seconds": 5950,
+    "lines": [
+        {
+            "number": 1,
+            "speaker": "speaker_0",
+            "start_seconds": 0.84,
+            "end_seconds": 2.06,
+            "text": "Meet Tucker."
+        },
+        {
+            "number": 2,
+            "speaker": "speaker_0",
+            "start_seconds": 2.1,
+            "end_seconds": 5.02,
+            "text": "Tucker's got specific taste."
+        },
+        {
+            "number": 3,
+            "speaker": "speaker_0",
+            "start_seconds": 5.06,
+            "end_seconds": 7.189,
+            "text": "No jazz music after sunset."
+        },
+        {
+            "number": 4,
+            "speaker": "speaker_0",
+            "start_seconds": 7.24,
+            "end_seconds": 11.8,
+            "text": "Also, be sure to always stop at that one corner where he found a cheeseburger three months ago."
+        },
+        {
+            "number": 5,
+            "speaker": "speaker_0",
+            "start_seconds": 11.82,
+            "end_seconds": 14.58,
+            "text": "And most importantly, clockwise walks only."
+        }
+    ]
+}

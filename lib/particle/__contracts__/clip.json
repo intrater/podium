@@ -1,0 +1,33 @@
+{
+    "id": "1wnMaQ5SWzEKv7dBM8yDQ",
+    "episode": {
+        "id": "6r7MPZUxcEeEks6MGupYsI",
+        "slug": "maxx-crosby-makes-these-nfl-teams-instant-contenders-press-box",
+        "title": "Maxx Crosby Makes These NFL Teams INSTANT Contenders! | Press Box",
+        "published_at": "2026-03-05T02:32:20Z",
+        "podcast": {
+            "id": "26RLFd6l678ldmB2c8eCUi",
+            "title": "Players Choice",
+            "slug": "players-choice",
+            "image_url": "https://image.simplecastcdn.com/images/469ecb26-cfc7-4c85-8794-3d879f69140f/b07d1c12-6f2d-4f08-a539-8abff201b914/3000x3000/33075469-1669075464208-f0af2de3fd39a.jpg?aid=rss_feed"
+        }
+    },
+    "segment": {
+        "id": "6APOqRnnBDp0Vdr3UuaWes",
+        "type": "TOPIC_DISCUSSION",
+        "title": "Cowboys vs. 49ers: Different Roads, Same End"
+    },
+    "type": "NOTABLE_LINE",
+    "title": "49ers = West Coast Cowboys?",
+    "description": "The group delivers a stinging analogy: the 49ers are the Cowboys with extra steps\u2014both perennial contenders who ultimately fall short.",
+    "intro_statement": "A sharp comparison of NFL heartbreakers",
+    "engagement_score": 74,
+    "speaker": {
+        "name": "Trent",
+        "role": "PANELIST"
+    },
+    "start_seconds": 5425.918,
+    "end_seconds": 5461.754,
+    "duration_seconds": 35.836,
+    "audio_url": "https://cdn.particle.pro/podcast/episode/e14a9726-108f-451b-9d11-6cc8d402b916/clip/audio/010852d3-fa22-4e14-8fd6-1b72cf13b330.mp3"
+}
