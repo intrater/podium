@@ -22,4 +22,23 @@ describe("mintStubJwt", () => {
 
     expect(payload.sub).toBe(otherId);
   });
+
+  it("returns user-specific tokens across A → B → A alternation", async () => {
+    const userA = process.env.PODIUM_USER_ID!;
+    const userB = "00000000-0000-4000-8000-000000000777";
+
+    const tokenA1 = await mintStubJwt(userA);
+    const tokenB = await mintStubJwt(userB);
+    const tokenA2 = await mintStubJwt(userA);
+
+    expect(tokenA1).not.toBe(tokenB);
+    expect(tokenA2).not.toBe(tokenB);
+    expect(tokenA1).toBe(tokenA2);
+
+    const secret = new TextEncoder().encode(process.env.SUPABASE_JWT_SECRET!);
+    const { payload: payloadA } = await jwtVerify(tokenA2, secret);
+    const { payload: payloadB } = await jwtVerify(tokenB, secret);
+    expect(payloadA.sub).toBe(userA);
+    expect(payloadB.sub).toBe(userB);
+  });
 });

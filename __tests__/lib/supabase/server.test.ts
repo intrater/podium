@@ -139,6 +139,7 @@ describe("RLS — cross-user write rejection (security-critical)", () => {
     });
     expect(error).not.toBeNull();
     expect(error?.code).toBe("42501");
+    expect(error?.message ?? "").toMatch(/row-level security/i);
   });
 
   it("A cannot insert feedback as B (catches missing WITH CHECK)", async () => {
@@ -150,6 +151,25 @@ describe("RLS — cross-user write rejection (security-critical)", () => {
     });
     expect(error).not.toBeNull();
     expect(error?.code).toBe("42501");
+    expect(error?.message ?? "").toMatch(/row-level security/i);
+  });
+
+  it("service role bypasses RLS — admin client reads A's card without a JWT", async () => {
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin.from("cards").select("id, user_id").eq("id", fixture.cardId!);
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+    expect(data?.[0].user_id).toBe(fixture.userAId);
+  });
+
+  it("service role bypasses RLS — admin client filters by user_id correctly (single-user v1)", async () => {
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin
+      .from("cards")
+      .select("id")
+      .eq("user_id", fixture.userBId!);
+    expect(error).toBeNull();
+    expect(data).toHaveLength(0);
   });
 
   it("A can insert feedback as themselves", async () => {

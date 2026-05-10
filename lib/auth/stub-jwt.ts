@@ -25,26 +25,24 @@ import { SignJWT } from "jose";
 import { env } from "@/lib/env";
 
 const ONE_HOUR_SECONDS = 60 * 60;
+const REFRESH_BUFFER_SECONDS = 5 * 60;
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+const cache = new Map<string, { token: string; expiresAt: number }>();
 
 /**
- * Mint (or reuse) a JWT whose `sub` claim is the configured PODIUM_USER_ID.
+ * Mint (or reuse) a JWT whose `sub` claim is the configured user.
  *
- * The token is cached in-process for ~55 minutes. JWTs are stateless — there
- * is no server to invalidate them — so caching across requests is safe.
- * Cache misses are cheap (a single HMAC-SHA256 sign), so this caching is a
- * convenience, not a hot-path optimization.
+ * Tokens are cached per-user in-process for ~55 minutes. JWTs are stateless,
+ * so caching across requests is safe; misses cost a single HMAC-SHA256 sign.
+ * The cache is keyed by user id so impersonation in tests does not poison
+ * the production token.
  */
 export async function mintStubJwt(userId: string = env.PODIUM_USER_ID): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
 
-  if (
-    cachedToken &&
-    cachedToken.expiresAt - now > 5 * 60 &&
-    decodeSubject(cachedToken.token) === userId
-  ) {
-    return cachedToken.token;
+  const cached = cache.get(userId);
+  if (cached && cached.expiresAt - now > REFRESH_BUFFER_SECONDS) {
+    return cached.token;
   }
 
   const secret = new TextEncoder().encode(env.SUPABASE_JWT_SECRET);
@@ -59,22 +57,6 @@ export async function mintStubJwt(userId: string = env.PODIUM_USER_ID): Promise<
     .setIssuer("supabase")
     .sign(secret);
 
-  cachedToken = { token, expiresAt };
+  cache.set(userId, { token, expiresAt });
   return token;
-}
-
-/**
- * Helper for tests: read the `sub` claim back out of a minted token without
- * verifying the signature. Production code never calls this — it's a sanity
- * check that the cached token still belongs to the requested user.
- */
-function decodeSubject(token: string): string | null {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-    return typeof payload.sub === "string" ? payload.sub : null;
-  } catch {
-    return null;
-  }
 }
