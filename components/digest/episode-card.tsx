@@ -2,7 +2,7 @@
 
 import { ChevronRight, Clock } from "lucide-react";
 
-import { SegmentList } from "@/components/digest/segment-list";
+import { AudioPlayer } from "@/components/player/audio-player";
 import {
   Sheet,
   SheetContent,
@@ -87,7 +87,12 @@ export function EpisodeCard({ card }: { card: DigestCard }) {
               {card.episodeSummary}
             </p>
           ) : null}
-          <SegmentList segments={card.segments} />
+          <AudioPlayer
+            src={card.episode.audioUrl}
+            segments={card.segments}
+            episodeTitle={card.episode.title}
+            episodeUrl={card.episode.audioUrl}
+          />
         </div>
       </SheetContent>
     </Sheet>

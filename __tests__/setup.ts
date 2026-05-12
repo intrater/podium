@@ -21,6 +21,22 @@ afterEach(async () => {
   cleanup();
 });
 
+// jsdom doesn't ship ResizeObserver. Components that use it (e.g. the
+// scrubber measuring its track width) crash on mount otherwise. The
+// stub matches the API surface — no actual observation happens, which
+// is fine for unit tests that don't depend on resize events.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    value: ResizeObserverStub,
+    writable: true,
+  });
+}
+
 const envPath = path.resolve(process.cwd(), ".env.local");
 if (fs.existsSync(envPath)) {
   for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
