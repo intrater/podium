@@ -2,21 +2,52 @@
 @import "tw-animate-css";
 
 /*
- * Podium scaffolding tokens (U2).
+ * Podium design tokens (U10).
  *
- * This file establishes the shadcn-compatible CSS variable system at scaffolding
- * time so primitives render correctly. U10 (design system foundation) expands this
- * with @property registrations for animatable accent transitions, per-team palette
- * overrides via :root[data-team="..."], and motion timing tokens.
+ * Three layers live here:
  *
- * Dark-first: the .dark class is set on <html> in app/layout.tsx, so the dark
- * tokens below are the active palette. The light tokens stay defined for
- * completeness and future system-color-scheme support.
+ * 1. shadcn-compatible CSS variables (--background, --foreground, --accent,
+ *    --card, etc.). Primitives in `components/ui/` resolve through these, so
+ *    they stay calm-and-neutral by design.
+ *
+ * 2. Podium team tokens (--team-accent, --team-accent-fg, --team-secondary).
+ *    Set per-team via the `data-team` attribute on <html>. v1 ships one team;
+ *    the [data-team="49ers"] selector carries the v2 switching architecture
+ *    without paying for it today. The matching Tailwind utilities are
+ *    bg-team-accent / text-team-accent-fg / bg-team-secondary.
+ *
+ *    Intentionally separate from shadcn's --accent: overloading would turn
+ *    every Button hover (outline/ghost variants use bg-accent) into saturated
+ *    team red. The team accent is for the play button, focused segment chip,
+ *    feedback hover, and other deliberate surfaces — not for every primitive.
+ *
+ * 3. Motion timing tokens (--motion-duration-*, --motion-ease-out). Resolved
+ *    by `components/player/motion-presets.ts` for the JS spring side and used
+ *    directly in CSS transitions where Motion is overkill. All durations
+ *    collapse to 0ms under `prefers-reduced-motion: reduce`.
  */
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * @property registration on the team tokens. Forward-compat stub for v2's
+ * runtime team switcher — registered properties can animate smoothly. Costs
+ * nothing today and unlocks the team-swap transition when it lands.
+ */
+@property --team-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.51 0.18 27);
+}
+
+@property --team-accent-fg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(1 0 0);
+}
+
 @theme inline {
+  /* shadcn surface tokens */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -35,8 +66,17 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Podium team tokens — surfaced as Tailwind utilities */
+  --color-team-accent: var(--team-accent);
+  --color-team-accent-fg: var(--team-accent-fg);
+  --color-team-secondary: var(--team-secondary);
+
+  /* Fonts */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Radii */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -45,6 +85,9 @@
 
 :root {
   --radius: 0.625rem;
+
+  /* Light-mode tokens — defined for completeness; v1 ships dark-first
+     via <html class="dark">. */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -63,27 +106,57 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  /* Motion timing — animations resolved on a small set of named durations
+     and one shared easing so motion feels coherent across surfaces. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 360ms;
+  --motion-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  /* Podium dark palette — three deliberate surface tones.
+       L=0.14  background  (page)
+       L=0.18  card        (digest cards, expanded sheet body)
+       L=0.22  popover     (overlays, popovers, elevated controls)
+     Pure-neutral chroma so the team accent carries the color signal. */
+  --background: oklch(0.14 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.18 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.269 0 0);
+  --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --secondary: oklch(0.22 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
+  --muted: oklch(0.22 0 0);
   --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
+  /* Neutral elevated surface — kept distinct from --team-accent (see file header). */
+  --accent: oklch(0.30 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.708 0 0);
+}
+
+/* Team palette — keep values in sync with `config/teams.ts`. The OKLCH
+   strings are the source of truth for in-app theming; the database
+   `teams.palette` jsonb mirrors them for v2 multi-team. */
+:root[data-team="49ers"] {
+  --team-accent: oklch(0.51 0.18 27); /* Faithful Red */
+  --team-accent-fg: oklch(1 0 0); /* on-red white */
+  --team-secondary: oklch(0.66 0.06 80); /* 49ers Gold */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+    --motion-duration-slow: 0ms;
+  }
 }
 
 @layer base {
