@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { Toaster } from "@/components/ui/sonner";
+
 /**
  * Authenticated-app layout (v1 ships with stub auth; the route group
  * exists so v3 real auth slots in without restructuring).
@@ -34,6 +36,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-4">
         {children}
       </main>
+      <Toaster
+        position="bottom-center"
+        toastOptions={{
+          className: "bg-popover text-foreground",
+        }}
+      />
     </div>
   );
 }
