@@ -4,12 +4,22 @@
  * Loads .env.local so tests see the same Supabase credentials as `next dev`.
  * Server-only imports (like lib/auth/stub-jwt.ts) are tolerated in vitest's
  * Node environment by treating "server-only" as a no-op module.
+ *
+ * Also installs an afterEach hook that calls @testing-library/react's
+ * cleanup() — RTL auto-cleanup only fires when `globals: true` is set in
+ * vitest config, which we don't enable, so without this hook portal-
+ * rendered DOM (Radix Sheet/Dialog) leaks between component tests.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+
+afterEach(async () => {
+  const { cleanup } = await import("@testing-library/react");
+  cleanup();
+});
 
 const envPath = path.resolve(process.cwd(), ".env.local");
 if (fs.existsSync(envPath)) {
