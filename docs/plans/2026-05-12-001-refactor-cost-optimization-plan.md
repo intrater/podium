@@ -139,7 +139,7 @@ The cost delta: N segments (~50/day) → M episodes (~8/day). Roughly 6× reduct
 
 ## Unit Status
 
-Last updated: 2026-05-13 (Phase A executed overnight; U2 root cause diagnosed later that day).
+Last updated: 2026-05-13 (Phase A overnight + same-day diagnosis of U2 + same-day execution of U4 code, U5, U6).
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -158,20 +158,27 @@ Last updated: 2026-05-13 (Phase A executed overnight; U2 root cause diagnosed la
 
 ### Next-session pickup (start here in a fresh chat)
 
-Phase A is complete. U2 was diagnosed in a follow-up debugging session: the structural fix is correct but **dormant until U4 grows the prompt past Claude Haiku 4.5's 4,096-token caching minimum**. None of the four ranked suspects from the prior revision was the real cause — Anthropic was silently skipping caching because our ~2,800-token prefix is below the model's threshold. Full diagnosis and how-to-detect-this writeup at `docs/solutions/2026-05-13-anthropic-haiku-4-5-cache-minimum.md`. The diagnostic script `scripts/debug-cache.ts` is kept in-repo for future use (U7 model swap will need it to test each candidate's cache minimum).
+**All units that can ship without Particle credits are in.** Phases A, B, C done in code; the remaining gates are live-data dependent.
 
-**Start the next session on U4.** Stage 0 (clean baseline before refactor) is the very first step — read U4's section below for the staged plan. Stage 1 begins the investigation into `SearchResult.windows[].lines[]` as the transcript-fetch replacement. Multiple prompt iteration cycles are expected within U4 before user sign-off on content shape.
+What landed in the 2026-05-13 session:
+- U2 diagnosed (Haiku 4.5's 4,096-token cache minimum was the real cause; structural fix from overnight remains correct)
+- U4 staged through Stage 0 → 1 → 1.5 (A/B v0, user signed off) → 2 (production module + 7 new tests + verified caching fires) → 3 (pipeline refactor + 2 new tests + legacy code deleted)
+- U6 cadence policy (migration applied, cron iterates teams)
+- U5 prompt versioning (migration applied, auto-reprocess on prompt change)
 
-When U4 ships, **U2 verification gets reopened**: run `scripts/debug-cache.ts` against the new per-episode prompt (or watch `cache_creation_input_tokens` on the first live ingest call). If the episode-level prefix clears 4,096 tokens, caching will fire automatically and U2 graduates from dormant to verified.
+What's blocked:
+1. **Particle credits depleted.** Every remaining gate hits this — U4 live sign-off needs fresh transcripts to surface new cards; U7 needs them to run the eval harness; the daily cron currently 402s against Particle. Restore credits before resuming this plan.
+2. **U4 Stage 3 sign-off** — once credits restored: trigger one `POST /api/ingest?force=1` → `npm run inspect-card -- all` → user reviews new card shape. If shape needs tweaks, bump the prompt + `EPISODE_EXTRACTION_PROMPT_VERSION` (U5 wires the auto-reprocess). Iterate until approved.
+3. **U2 final verification** — happens automatically the first time U4 runs live. Watch `npm run inspect-costs` for cache_read_input_tokens > 0; the system prompt is already verified at 4,384 tokens (above 4,096 minimum).
+4. **U7** — last optional unit. Only worth running if post-U4+U6 costs don't hit the $0.20/day target. Annual-average projection currently sits at ~$0.225/day, so U7 may not be necessary.
 
 ### What's blocked on the user
 
-1. **U4 Stage 1.5 quality verdict** (active, 2026-05-13) — user reviews `docs/solutions/2026-05-13-ab-output.txt` and confirms per-episode quality is at least equivalent to per-segment, OR directs U4 to downscope.
-2. **U4 Stage 3 content-shape sign-off** — once Stage 2 builds the production module, user reviews `inspect-card` output and `qa:screenshots` after each prompt iteration; unit isn't done until user approves the shape.
-3. **Model-swap decision in U7** — final pick requires user judgment on content quality from the side-by-side comparison.
-4. **Particle credits depleted** — overnight force=1 runs exhausted credits. Need top-up before U4 can ship to production (the daily ingest depends on fresh transcript fetches). User has noted this as a deferred future blocker.
+1. **Particle credits top-up** — unblocks everything below.
+2. **U4 content-shape sign-off** — once credits restored, user reviews cards via `inspect-card` and approves the new shape (or directs prompt edits).
+3. **Model-swap decision in U7** — only if U4+U6 don't hit CE1's $0.20 target. Final pick requires user judgment on content quality from the side-by-side comparison.
 
-Nothing blocked on user for U1–U3, U5, U6 — those are mechanical. U2 is no longer blocked on diagnosis; it's parked until U4's larger prompt clears Haiku's 4,096-token cache minimum.
+Nothing else blocked on user. U1, U2, U3, U5, U6, U8 are done.
 
 ---
 
