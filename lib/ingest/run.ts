@@ -43,6 +43,14 @@ export interface DailyIngestionDeps extends PipelineDeps {
   runKind?: "manual_run" | "scheduled_run";
   /** Override the dev-mode flag (for tests). Defaults to env.INGEST_DEV_MODE. */
   devMode?: boolean;
+  /**
+   * Force re-processing of segments already in DB (bypass the dedup
+   * filter). Used during prompt iteration so the same episodes can be
+   * re-summarized after a prompt change without manual DB cleanup.
+   * Defaults to env.INGEST_FORCE_REPROCESS. Force does NOT bypass the
+   * route-level 60s rate limit or the pre-flight cost gate.
+   */
+  forceReprocess?: boolean;
   /** Inject `now()` for tests. */
   now?: () => Date;
 }
@@ -63,6 +71,7 @@ export async function runDailyIngestion(
   const now = (deps.now ?? (() => new Date()))();
   const runId = crypto.randomUUID();
   const devMode = deps.devMode ?? env.INGEST_DEV_MODE;
+  const forceReprocess = deps.forceReprocess ?? env.INGEST_FORCE_REPROCESS;
   const runKind = deps.runKind ?? "manual_run";
 
   // 1. Load the resolved-id catalog. Skip rows whose particle_id is null —
@@ -172,6 +181,7 @@ export async function runDailyIngestion(
       sinceTimestamp,
       untilTimestamp: now.toISOString(),
       runId,
+      forceReprocess,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

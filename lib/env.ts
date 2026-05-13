@@ -36,6 +36,10 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("true")
       .transform((v) => v === "true"),
+    INGEST_FORCE_REPROCESS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
   },
 
   /**
@@ -61,6 +65,7 @@ export const env = createEnv({
     CRON_SECRET: process.env.CRON_SECRET,
     PODIUM_USER_ID: process.env.PODIUM_USER_ID,
     INGEST_DEV_MODE: process.env.INGEST_DEV_MODE,
+    INGEST_FORCE_REPROCESS: process.env.INGEST_FORCE_REPROCESS,
   },
 
   /**

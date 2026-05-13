@@ -45,6 +45,14 @@ export async function POST(request: Request): Promise<Response> {
 
   const supabase = getSupabaseAdmin();
 
+  // Force-reprocess: `?force=1` query param bypasses the per-segment
+  // dedup filter so prompt iterations don't require manual DB cleanup.
+  // Does NOT bypass the 60s rate limit below or the pre-flight cost
+  // gate inside runDailyIngestion — those still apply.
+  const forceReprocess =
+    new URL(request.url).searchParams.get("force") === "1" ||
+    env.INGEST_FORCE_REPROCESS;
+
   const recent = await mostRecentManualRun(supabase);
   if (recent) {
     const elapsedSeconds = (Date.now() - new Date(recent).getTime()) / 1000;
@@ -68,6 +76,7 @@ export async function POST(request: Request): Promise<Response> {
       teamId: TEAM_ID,
       userId: env.PODIUM_USER_ID,
       runKind: "manual_run",
+      forceReprocess,
     });
     return NextResponse.json(result, { status: 200 });
   } catch (err) {

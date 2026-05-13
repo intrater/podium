@@ -30,6 +30,13 @@ export interface IngestPipelineInput {
    * Tied through to `system_alerts.payload.run_id`.
    */
   runId?: string;
+  /**
+   * Bypass the "already in DB" dedup filter — re-fetch transcripts and
+   * re-summarize every found segment. Used during prompt iteration so
+   * the same episodes can be re-summarized after a prompt change
+   * without manual DB cleanup. Default: false.
+   */
+  forceReprocess?: boolean;
 }
 
 export interface IngestPipelineOutput {

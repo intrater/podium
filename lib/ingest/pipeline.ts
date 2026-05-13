@@ -119,7 +119,10 @@ export async function runIngestPipeline(
   ]);
 
   // 4. Filter to segments not already persisted (cross-run dedupe).
-  const fresh = await filterAlreadyPersisted(deps.supabase, normalised);
+  //    Skipped entirely under forceReprocess — re-fetches every segment.
+  const fresh = input.forceReprocess
+    ? normalised
+    : await filterAlreadyPersisted(deps.supabase, normalised);
 
   if (fresh.length === 0) return out;
 

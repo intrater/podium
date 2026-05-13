@@ -98,6 +98,71 @@ describe("POST /api/ingest — happy path", () => {
   });
 });
 
+describe("POST /api/ingest — force-reprocess flag (U8)", () => {
+  it("threads forceReprocess=true into runDailyIngestion when ?force=1", async () => {
+    runDailyIngestionMock.mockResolvedValue({
+      runId: "uuid_force",
+      status: "completed",
+      podcastsScanned: 31,
+    });
+    const { POST } = await import("@/app/api/ingest/route");
+    await POST(
+      new Request("https://test.local/api/ingest?force=1", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${CRON_SECRET}` },
+      }),
+    );
+    expect(runDailyIngestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceReprocess: true }),
+    );
+  });
+
+  it("threads forceReprocess=false (default) when ?force is absent", async () => {
+    runDailyIngestionMock.mockResolvedValue({
+      runId: "uuid_default",
+      status: "completed",
+      podcastsScanned: 31,
+    });
+    const { POST } = await import("@/app/api/ingest/route");
+    await POST(
+      new Request("https://test.local/api/ingest", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${CRON_SECRET}` },
+      }),
+    );
+    expect(runDailyIngestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceReprocess: false }),
+    );
+  });
+
+  it("rate limit still applies under ?force=1 (force bypasses dedup, not rate-limit)", async () => {
+    const recent = new Date(Date.now() - 10_000).toISOString();
+    supabaseAdminMock.from.mockImplementationOnce(() => ({
+      select: () => ({
+        eq: () => ({
+          order: () => ({
+            limit: () => ({
+              maybeSingle: async () => ({
+                data: { created_at: recent },
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    const { POST } = await import("@/app/api/ingest/route");
+    const response = await POST(
+      new Request("https://test.local/api/ingest?force=1", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${CRON_SECRET}` },
+      }),
+    );
+    expect(response.status).toBe(429);
+    expect(runDailyIngestionMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/ingest — rate limit", () => {
   it("returns 429 with Retry-After when a manual_run row exists within 60 seconds", async () => {
     const recent = new Date(Date.now() - 10_000).toISOString(); // 10s ago
