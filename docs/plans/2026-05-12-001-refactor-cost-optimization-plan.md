@@ -44,7 +44,7 @@ This plan executes against the unit-economics anchor at `docs/strategy/unit-econ
 
 | ID | Requirement | Source |
 |---|---|---|
-| **CE1** | Per-team-per-day cost ≤ $0.20 in steady state (7-day rolling average) | unit-economics §"Cost model" |
+| **CE1** | Per-team-per-day cost ≤ $0.20 in steady state (30-day rolling average — long enough to absorb in-season/off-season variance per the origin doc's cadence-averaging math, short enough to catch sustained regressions) | unit-economics §"Cost model" |
 | **CE2** | Anthropic prompt caching hits the ~90% rate U9 designed for | unit-economics §"What we observed" |
 | **CE3** | Per-team cost attribution exists on `api_calls` so CE1 is measurable | unit-economics §"Engineering decisions anchored to this doc" |
 | **CE4** | per-episode Claude pipeline replaces per-segment summarization | unit-economics §"Engineering decisions anchored to this doc" |
@@ -138,14 +138,15 @@ Last updated: 2026-05-12 (plan creation).
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
-| **Phase A — Measurement & quick wins** | | | |
+| **Phase A — Measurement, quick wins & iteration scaffolding** | | | |
 | U1 | Per-team cost attribution on `api_calls` | **not started** | Foundation — without team_id on api_calls, success metric CE1 isn't measurable. New migration + threading through tracked-call wrappers + inspect-costs `group=team` flag. |
 | U2 | Anthropic prompt caching fix | **not started** | One-line fix per repo research: add `cache_control: { type: "ephemeral" }` to `TOOL_DEFINITION` in `summarize.ts:107` + `summarize-episode.ts:70`. Verify via `npm run inspect-costs` showing cache hit rate climbs from 0% toward 90%. ~1 hour. |
 | U3 | Verify list-call leak origin | **not started** | NOT a code fix per repo research — `listEntities`/`listPodcasts` are only called from `lib/seed/` and the live-DB seed test (`describe.skipIf(!haveEnv)`). Cross-reference api_calls timestamps against system_alerts run windows to confirm. Document conclusion; potentially gate the live-DB seed test behind an explicit opt-in flag. ~30 min. |
+| U8 | Force-reprocess flag (iteration scaffolding) | **not started** | Split from original U5 to ship BEFORE U4 — `INGEST_FORCE_REPROCESS` env var + `?force=1` query param on POST `/api/ingest`. Bypasses dedup filter; preserves 60s rate limit. Makes U4's 3–5 prompt iteration cycles cheap and repeatable. No schema migration — that lives in U5 (prompt-version tagging). |
 | **Phase B — Structural cost reduction** | | | |
-| U4 | Per-episode Claude pipeline (with content sign-off gate) | **not started** | Biggest lever. Refactor pipeline.ts:137–171 from per-segment fan-out to per-episode fan-out. Investigate inline `SearchResult.windows[].lines[]` as transcript-fetch replacement. **Open architectural decision** (Stage 1): how Claude-extracted moments map onto the `segments.particle_segment_id UNIQUE` constraint and `onConflict` upsert path. Either moments preserve Particle segment IDs (extraction prompt constrained), or U4 requires a schema change not currently in the migration list. CRITICAL: user-approval gate on new card shape via `inspect-card` + `qa:screenshots`. Multiple prompt iteration cycles expected within the unit. |
+| U4 | Per-episode Claude pipeline (with content sign-off gate) | **not started** | Biggest lever. Refactor pipeline.ts:137–171 from per-segment fan-out to per-episode fan-out. Investigate inline `SearchResult.windows[].lines[]` as transcript-fetch replacement. **Persistence design (committed):** extraction prompt preserves Particle segment boundaries — each moment carries its `particle_segment_id`, existing UNIQUE constraint + `onConflict` upsert path unchanged. CRITICAL: user-approval gate on new card shape via `inspect-card` + `qa:screenshots`. Multiple prompt iteration cycles expected within the unit. |
 | **Phase C — Iteration scaffolding** | | | |
-| U5 | Prompt-version tagging + force-reprocess flag | **not started** | New `prompt_version` column on segments (and cards if rollup retained). Version constants in `lib/anthropic/types.ts`. `INGEST_FORCE_REPROCESS` env var bypasses dedup. Removes manual DB cleanup for prompt iteration. |
+| U5 | Prompt-version tagging (auto-refresh on prompt change) | **not started** | New `prompt_version` column on segments (and cards if rollup retained). Version constants in `lib/anthropic/types.ts`. Pipeline filter respects `prompt_version != current_version` for selective re-processing. **Force flag now lives in U8** (Phase A) so it's available during U4 iteration. |
 | U6 | Cadence policy (per-team in-season/off-season) | **not started** | `teams.cadence_days` column. Pipeline checks elapsed time before running. Sport season boundaries encoded per team. Manual override always available. Cuts ~50% of cost in off-season (~7 months/year). |
 | **Phase D — Model evaluation** | | | |
 | U7 | Model swap evaluation | **not started** | Add `model` override to AnthropicClientOptions. Build evaluation harness running same 49ers episode through Claude Haiku 4.5, Gemini 2.5 Flash, Flash-Lite, GPT-4.1 Nano, DeepSeek V4 Flash, plus Anthropic Batch API. Score: cost, content quality (user judges), zod pass rate, latency, quote fidelity. **Eval-only API keys (Gemini, OpenAI, Grok, DeepSeek) live in `.env.local` only — explicitly NOT added to `lib/env.ts` or Vercel production env, to avoid bloating boot-time validation for keys production never uses.** **Hard call-count ceiling** (`MAX_EVAL_EPISODES = 5`, `MAX_EVAL_MODELS = 8`) in the harness, checked before the eval loop begins, to prevent runaway credit consumption if the loop is misconfigured. Output: data-backed decision + new solutions doc. |
@@ -161,7 +162,7 @@ Nothing blocked on user for U1–U3, U5, U6 — those are mechanical.
 
 ## Implementation Units
 
-7 units across 4 phases. Phase A is foundational and must complete before Phase B (we can't measure CE1 without U1, and Phase B's per-episode pipeline benefits from confirmed caching working from U2). Phases C and D can run in parallel after Phase B.
+8 units across 4 phases. Phase A is foundational and must complete before Phase B. Within Phase A, order is **U2 → U1 → U3 → U8**: U2 first because it's the highest-confidence quick win (~1 hour, the visible Anthropic cost drop is the early evidence the plan's premise works); U1 second to precisely measure that win with per-team attribution; U3 third to verify the list-call leak is harmless; U8 fourth to land the iteration-loop scaffolding U4 will need. Phases C and D can run in parallel after Phase B.
 
 ---
 
@@ -188,7 +189,7 @@ Nothing blocked on user for U1–U3, U5, U6 — those are mechanical.
 **Approach:**
 
 1. Migration: `alter table api_calls add column if not exists team_id text;` Nullable, no FK (lightweight, avoids cascade entanglement). Backfill is not needed — historical rows stay null and inspect-costs treats null as "unknown team."
-2. Thread `teamId` factory-level into `createParticleClient` and `createAnthropicClient`. Both factories already accept `{ supabase }` options objects — add `teamId?: string` to those. **Implementation detail:** `team_id` must thread all the way through to the row-construction functions — `logCall` in `lib/particle/tracked-call.ts` (lines 263–299) and `logApiCall` in `lib/anthropic/client.ts` (line 122) each build the `api_calls` insert object locally. Both need `team_id: opts.teamId` added to the insert payload. Adding only to the factory options is insufficient — the inner functions read from `TrackedCallOptions` / per-call operation metadata, which must carry the value through.
+2. Thread `teamId` factory-level into `createParticleClient` and `createAnthropicClient`. Both factories already accept `{ supabase }` options objects — add `teamId?: string` to those. **Implementation detail:** `team_id` must thread all the way through to the row-construction functions — `logCall` in `lib/particle/tracked-call.ts` (lines 263–299) and `logApiCall` in `lib/anthropic/client.ts` (line 122) each build the `api_calls` insert object locally. Both need `team_id: opts.teamId` added to the insert payload. Adding only to the factory options is insufficient — the inner functions read from `TrackedCallOptions` / per-call operation metadata, which must carry the value through. **Validate `teamId` against `config/teams.ts`** at factory-construction time — assert it matches one of the known team IDs. Avoids future-v2 misattribution when multiple teams' pipelines run on shared factory instances. A nullable column tolerates `undefined` callers (legacy rows), but explicit `teamId` values must be valid.
 3. Update inspect-costs to support `--group=team` and `--team=<id>` flags. Output adds a "by team" section when grouping is requested.
 4. Update the `remainingStarterCreditUsd` query in `lib/ingest/run.ts` to optionally scope to a specific `team_id` (single-team v1 = same result either way; v2-ready).
 
@@ -247,8 +248,8 @@ Token-count sanity check from repo research: `SHARED_RULES` alone is ~1,891 toke
 
 **Verification:**
 - After deploying the fix, trigger one ingestion run (the dev-mode path, ~$1).
-- `npm run inspect-costs -- since=<today>` Anthropic detail section reports cache hit rate ≥80% (the first call per session primes the cache; subsequent calls hit). Anthropic cost component drops by 60–70% vs prior runs.
-- If the rate stays at 0%, the bug is somewhere else — investigate before proceeding to U3+.
+- `npm run inspect-costs -- since=<today>` Anthropic detail section reports cache hit rate ≥80% (the first call per session primes the cache; subsequent calls hit). **AND** Anthropic cost component per ingest run drops by ≥50% vs prior runs. (Cache hit rate alone is necessary but not sufficient — if the cacheable prefix is small relative to the dynamic transcript context, 90% off prefix yields a smaller real cost reduction than the math suggests. Verify both metrics.)
+- If the rate stays at 0%, or if the rate climbs but Anthropic cost barely moves, the bug or the impact assumption is wrong — investigate before proceeding.
 
 ---
 
@@ -288,13 +289,55 @@ Token-count sanity check from repo research: `SHARED_RULES` alone is ~1,891 toke
 
 ---
 
+### U8. Force-reprocess flag (iteration scaffolding for U4)
+
+**Goal:** Ship the `INGEST_FORCE_REPROCESS` env var + `?force=1` query param BEFORE U4 so its 3–5 prompt iteration cycles don't require manual DB cleanup. Split from the original combined U5 to land in Phase A. Version-mismatch reprocessing remains in U5.
+
+**Requirements:** CE5 (partial — covers the iteration-loop affordance; CE5's "auto-refresh on prompt change" lands in U5).
+
+**Dependencies:** none (independent of U1/U2/U3).
+
+**Files:**
+- `lib/env.ts` (modify — add `INGEST_FORCE_REPROCESS` to optional server vars, default `false`)
+- `lib/ingest/run.ts` (modify — read `INGEST_FORCE_REPROCESS` env var; accept `forceReprocess: boolean` in input; thread through to pipeline)
+- `lib/ingest/pipeline.ts` (modify — `filterAlreadyPersisted` accepts a force flag; when true, returns all input segments unfiltered)
+- `app/api/ingest/route.ts` (modify — accept `?force=1` query param; OR with env var; pass to `runDailyIngestion`)
+- `__tests__/lib/ingest/run.test.ts` (modify — assert force flag propagates)
+- `__tests__/lib/ingest/pipeline.test.ts` (modify — assert filter bypass under force)
+- `__tests__/app/api/ingest/route.test.ts` (modify — assert `?force=1` parsed and threaded)
+
+**Approach:**
+
+1. `lib/env.ts`: `INGEST_FORCE_REPROCESS: z.enum(["true","false"]).default("false").transform((v) => v === "true")` (mirrors `INGEST_DEV_MODE` pattern).
+2. `runDailyIngestion` accepts `forceReprocess?: boolean` in its input; resolves to `forceReprocess ?? env.INGEST_FORCE_REPROCESS`.
+3. `filterAlreadyPersisted` accepts the force flag; when true, returns input unchanged (no dedup query).
+4. POST `/api/ingest`: parse `new URL(request.url).searchParams.get("force") === "1"`; pass to `runDailyIngestion`.
+5. **Preserve the 60s rate limit on `manual_run`:** force bypasses dedup only, not the rate limit. Verify with explicit test scenario.
+
+**Patterns to follow:**
+- Existing `INGEST_DEV_MODE` env var threading pattern.
+- Existing query-param parsing on the manual ingest route.
+
+**Test scenarios:**
+- **Happy path (force off):** dedup runs as today; existing segments are skipped.
+- **Env var on:** `INGEST_FORCE_REPROCESS=true` causes pipeline to re-process every found segment.
+- **Query param on:** `POST /api/ingest?force=1` re-processes every found segment for that run, even without the env var.
+- **Rate limit preserved under force:** two `?force=1` calls within 60s; second returns 429 like today's flow.
+- **No DB write before auth:** unauthenticated request with `?force=1` returns 401; no `system_alerts` row, no DB activity.
+
+**Verification:**
+- `INGEST_FORCE_REPROCESS=true npm run dev` then triggering ingestion re-processes all existing segments (~$0.50–1.00 in dev mode).
+- `npm run inspect-costs -- since=<run start>` shows a one-time bump; no recurring spike.
+
+---
+
 ### U4. Per-episode Claude pipeline (with content-shape sign-off gate)
 
 **Goal:** Replace the per-segment Claude pass with a per-episode pass. Cuts the dominant cost line (transcript fetches + segment Claude calls) by ~6×. Improves content quality by giving Claude full episode context. **Ships only when the user has approved the new card shape.**
 
 **Requirements:** CE4, CE8. Also unblocks CE1 (this is the single biggest cost cut).
 
-**Dependencies:** U1 (for measurement), U2 (caching must work — episode prompts have large system prefixes that depend on cache hits), U3 (clean cost baseline — list-call leak resolved before measuring U4's ≥50% reduction).
+**Dependencies:** U1 (for measurement), U2 (caching must work — episode prompts have large system prefixes that depend on cache hits), U3 (clean cost baseline — list-call leak resolved before measuring U4's ≥50% reduction), U8 (force-reprocess flag — required for cheap prompt iteration within the unit's sign-off cycle).
 
 **Files:**
 - `lib/ingest/pipeline.ts` (significant modify — refactor lines 137–171 from segment-fan-out to episode-fan-out)
@@ -312,19 +355,31 @@ Token-count sanity check from repo research: `SHARED_RULES` alone is ~1,891 toke
 
 This unit has three distinct sub-stages, each with verification:
 
+**Stage 0 — Establish a clean baseline (pre-flight check).**
+- Before committing to U4's refactor, take one clean production-shape baseline: trigger ONE ingestion run with no force flag, no dev-mode, no reprocessing. Wait for it to complete.
+- Run `npm run inspect-costs -- since=<that run's start time>` and record the per-team daily cost.
+- **Decision point:** if the post-U2 baseline is already within 2× of $0.20/day (i.e., ≤$0.40/day), U4's content-shape risk may not be worth taking. Consider downscoping to caching+inline-windows only and skipping the prompt-architecture refactor.
+- Capture the decision and the baseline numbers in `docs/solutions/2026-05-12-episode-extraction-prompt.md`.
+
 **Stage 1 — Investigate the inline-transcript hypothesis.**
 - Pull a real episode's `SearchResult` from `searchEntityMentions` and inspect the `windows[].lines[]` payload size and content. **Important: investigate both mention sources separately** — `ParticleMentionResult` (returned by `searchEntityMentions`, per-entity) has `windows[].lines[]` but NOT a full segment object with `audio_url`/`title`/`description`/`summary`. `ParticleSearchResult` (returned by `searchByContent`, per-storyline) DOES have a proper segment object. The extraction prompt will need to work with both shapes; understand the context-richness difference before writing the prompt.
 - Determine if the concatenated line-level transcript snippets surrounding each mention are sufficient context for Claude to write substantive summaries + accurate pull quotes.
-- **Resolve the persistence shape decision:** episode-level moments may not map 1:1 to existing Particle segment IDs. The `segments.particle_segment_id` UNIQUE constraint plus the `onConflict: "particle_segment_id"` upsert in `pipeline.ts` is the existing idempotency mechanism. Three options:
-  1. Constrain the extraction prompt to respect Particle's segment boundaries — moments preserve `particle_segment_id`, upsert path unchanged.
-  2. Allow moments to be free-form and add a new column (e.g., `moment_id` or `extraction_id`) with its own uniqueness — requires schema migration not in current plan.
-  3. Drop the `particle_segment_id` UNIQUE constraint and use a composite key — also requires migration.
-  Pick one in Stage 1, before Stage 3's pipeline refactor commits to a persistence path.
+- **Persistence shape decision (committed at plan time, 2026-05-12):** the extraction prompt MUST preserve Particle segment boundaries — each `EpisodeMoment` carries the originating `particle_segment_id`, the existing UNIQUE constraint + `onConflict` upsert path is unchanged, and idempotency is preserved. Stage 1 verifies the prompt can hold this constraint while still producing high-quality content; if Claude consistently wants to merge or split segments to produce better summaries, escalate as a Stage 1 contingency rather than auto-relaxing the constraint. The two alternatives considered and rejected: (a) adding a new `moment_id` column with its own uniqueness (rejected — requires schema migration + idempotency rewrite); (b) dropping the `particle_segment_id` UNIQUE constraint entirely (rejected — most flexible but largest implementation footprint and risks duplicate-row bugs on re-runs).
 - Decision point on transcript source:
   - **If inline sufficient:** the new pipeline doesn't call `getClipTranscript` at all — eliminates the entire $2.03/2-day transcript-fetch line. Expected outcome.
   - **If insufficient (broader episode context needed):** add `getEpisodeTranscript` (one call per episode instead of per segment).
 - **Also decide at Stage 2 conclusion:** the disposition of `lib/anthropic/summarize.ts` and `lib/anthropic/summarize-episode.ts` — deleted, kept as fallback, or merged into the new module. Capture the decision in the solutions doc so the file-list TBD doesn't carry through the unit.
 - Capture all Stage 1 decisions and the underlying data in `docs/solutions/2026-05-12-episode-extraction-prompt.md`.
+
+**Stage 1.5 — Quality A/B vs. current per-segment baseline.**
+- Pick 3 representative 49ers episodes (one team-specific show with rich coverage, one national show with passing mentions, one borderline). Use the existing 4 cards in DB as candidates if they're representative.
+- Run each through BOTH the current per-segment summarizer AND a v0 per-episode extraction prompt (built quickly for the A/B; doesn't need to be production-quality yet).
+- User compares output blind via `npm run inspect-card -- N` for each pair: which version produces more substantive summaries, more accurate pull quotes, fewer hallucinated moments?
+- **Decision point:**
+  - **If per-episode is at least equivalent quality:** proceed to Stage 2 with the architectural shift.
+  - **If per-episode is materially worse on the sample:** restructure U4 to KEEP per-segment summarization but ship the caching + inline-window optimizations. Loses the 6× call-count reduction but avoids quality regression. Update CE1 expectations downward in this case.
+- A/B cost: ~$2 in eval spend. Cheap compared to discovering quality regression at Stage 3 after building the full pipeline.
+- Capture the A/B output (sample cards, user assessment) in `docs/solutions/2026-05-12-episode-extraction-prompt.md`.
 
 **Stage 2 — Build the extraction call.**
 - New module `lib/anthropic/extract-episode-moments.ts` exposing `extractEpisodeMoments(input)` that returns one structured response covering all relevant moments for a single episode in a single Claude call.
@@ -366,55 +421,48 @@ This unit has three distinct sub-stages, each with verification:
 
 **Contingencies:**
 - **If the inline transcript proves insufficient and full episode transcripts are too expensive (e.g., $0.04/episode):** fall back to fetching only when mentions count >2 per episode (the cases that justify the extra fetch); use inline-only for single-mention episodes.
-- **If user can't approve any prompt iteration:** escalate to the user; the unit is genuinely blocked on content shape, not engineering. May require a different content model entirely (a v2 conversation).
+- **If user can't approve any prompt iteration after 5 attempts:** stop iterating and escalate. The unit is genuinely blocked on content shape, not engineering. Two paths from here: (a) accept the current per-segment content quality and ship the caching + inline-window cost wins only (skip the prompt-architecture shift), or (b) escalate to a content-architecture redesign as a separate plan. Do NOT iterate indefinitely — a sixth iteration is rarely meaningfully different from the fifth.
 
 ---
 
-### U5. Prompt-version tagging + force-reprocess flag
+### U5. Prompt-version tagging (auto-refresh on prompt change)
 
-**Goal:** Remove the manual DB-cleanup tax for prompt iteration. Future prompt changes auto-trigger re-processing on the next daily run.
+**Goal:** Future prompt changes auto-trigger re-processing on the next daily run, without manual force-flag intervention. Catches prompt drift at the daily cron without per-deploy ceremony.
 
-**Requirements:** CE5.
+**Requirements:** CE5 (the auto-refresh half — U8 covers the iteration-loop half).
 
-**Dependencies:** U4 (the prompt shape stabilizes here; versioning catches future iterations).
+**Dependencies:** U4 (the prompt shape stabilizes here; versioning catches future iterations), U8 (the force flag is the manual-override path; U5's auto-refresh is the automatic-on-change path).
 
 **Files:**
 - `supabase/migrations/0013_segments_prompt_version.sql` (new)
 - `lib/anthropic/types.ts` (modify — add `EPISODE_EXTRACTION_PROMPT_VERSION` constant)
 - `lib/ingest/pipeline.ts` (modify — write `prompt_version` on segment rows; pipeline filter respects `prompt_version != current_version`)
-- `lib/ingest/run.ts` (modify — read `INGEST_FORCE_REPROCESS` env var; thread through to pipeline)
-- `lib/env.ts` (modify — add `INGEST_FORCE_REPROCESS` to optional server vars)
-- `app/api/ingest/route.ts` (modify — accept `?force=1` query param, OR'd with env var)
 - `__tests__/lib/ingest/pipeline.test.ts` (modify — assert filterAlreadyPersisted bypasses re-process when version changed)
-- `__tests__/lib/ingest/run.test.ts` (modify — assert force flag propagates)
 
 **Approach:**
 
 1. Migration: `alter table segments add column if not exists prompt_version text;` (also `cards` if we keep the rollup separate).
 2. Version constant: `export const EPISODE_EXTRACTION_PROMPT_VERSION = "v1" as const;` in `lib/anthropic/types.ts`. Bump manually when the prompt is intentionally changed.
 3. Pipeline write: every segment row written carries the current version.
-4. Pipeline filter: `filterAlreadyPersisted` becomes "skip segments already in DB IF version matches current; re-process if version differs OR force=true."
-5. Force flag: `INGEST_FORCE_REPROCESS=true` env var bypasses the filter entirely. `?force=1` query param on POST `/api/ingest` provides the same effect for one-off runs without changing env. **Note:** the existing 60-second rate limit on `system_alerts.kind = 'manual_run'` (in `app/api/ingest/route.ts`) MUST continue to apply when `?force=1` is set — force bypasses the dedup filter, not the rate limit. Explicitly verify this in the test scenarios.
+4. Pipeline filter (modifies the existing `filterAlreadyPersisted`): skip segments already in DB IF version matches current; re-process if version differs. Force flag from U8 still bypasses this filter entirely.
 
-**First-deploy cost spike:** When U5 ships, all existing segment rows have `prompt_version = null`. PostgREST equality semantics treat `null != "v1"` as null (not true), so the version-equality filter `eq("prompt_version", CURRENT_VERSION)` will NOT skip null-version rows — every existing segment qualifies as "unprocessed" on the first run after U5 ships. Expect a one-time re-processing event covering all historical segments (~50–200 segments × per-segment cost). Plan for this either by (a) using force=1 explicitly on the first run after deploy to control the spike, or (b) running a one-time backfill setting `prompt_version` on existing rows to a sentinel (e.g., `"legacy"`) so the version-mismatch filter behaves deterministically.
+**First-deploy cost spike:** When U5 ships, all existing segment rows have `prompt_version = null`. PostgREST equality semantics treat `null != "v1"` as null (not true), so the version-equality filter `eq("prompt_version", CURRENT_VERSION)` will NOT skip null-version rows — every existing segment qualifies as "unprocessed" on the first run after U5 ships. Expect a one-time re-processing event covering all historical segments (~50–200 segments × per-segment cost). Plan for this either by (a) using `?force=1` explicitly on the first run after deploy to control the spike, or (b) running a one-time backfill setting `prompt_version` on existing rows to a sentinel (e.g., `"legacy"`) so the version-mismatch filter behaves deterministically. Backfill is the recommended path.
 
 **Patterns to follow:**
 - Existing version constant pattern (`ANTHROPIC_MODEL` at `lib/anthropic/types.ts:113`).
 - Existing `INGEST_DEV_MODE` env var threading pattern.
-- Existing query-param parsing on the manual ingest route.
 
 **Test scenarios:**
-- **Happy path — no force, no version mismatch:** existing segment in DB at v1, current code v1; segment is skipped on re-run.
+- **Happy path — version match:** existing segment in DB at v1, current code v1; segment is skipped on re-run.
 - **Version mismatch:** existing segment at v0, current code at v1; segment is re-processed (re-fetches transcript, re-extracts).
-- **Force flag bypasses version match:** existing segment at v1, current code at v1, `force=true`; segment is re-processed anyway.
-- **Force flag bypasses persistence dedup entirely:** sets of segments at various versions, all re-processed under force.
-- **Env var route:** `INGEST_FORCE_REPROCESS=true` invokes the same code path as `?force=1`.
+- **Legacy backfill sentinel:** existing segment with `prompt_version = 'legacy'`, current code at v1; segment is re-processed.
+- **Force from U8 still works:** `?force=1` re-processes regardless of version match (verifies U8 still functions after U5's filter change).
 
 **Verification:**
 - Migration applies cleanly.
+- Run the one-time backfill setting historical rows to `prompt_version = 'legacy'`.
 - Bumping the version constant + re-running the cron causes existing segments to be re-extracted (verify by checking `prompt_version` updates in DB).
-- `INGEST_FORCE_REPROCESS=true npm run dev` then triggering ingestion re-processes ALL existing segments.
-- `npm run inspect-costs` shows a one-time bump on re-processing run; baseline returns afterward.
+- `npm run inspect-costs` shows a one-time bump on first deploy (if backfill skipped) or on intentional version bumps; baseline returns afterward.
 
 ---
 
@@ -471,9 +519,7 @@ This unit has three distinct sub-stages, each with verification:
 
 **Files:**
 - `lib/anthropic/client.ts` (modify — add `model` override to `AnthropicClientOptions`; change `ANTHROPIC_MODEL` from `const` to runtime-configurable)
-- `scripts/eval-models.ts` (new — runs the same 49ers episode through multiple models, captures results)
-- `lib/eval/types.ts` (new — `ModelEvalResult` shape)
-- `lib/eval/providers/` (new dir — thin adapters for Claude / Gemini / OpenAI / Grok / DeepSeek that translate to/from a common `ExtractionRequest` shape)
+- `scripts/eval-models.ts` (new — single throwaway script: runs the same 49ers episode through multiple models inline using each provider's SDK directly. Captures cost/latency/output per (model × episode))
 - `docs/solutions/2026-05-12-model-evaluation.md` (new — captures the matrix and the decision)
 - `package.json` (modify — add `eval-models` script, plus deps for the chosen evaluation SDKs)
 
@@ -481,7 +527,7 @@ This unit has three distinct sub-stages, each with verification:
 
 This unit is structured as an evaluation, not a production code change. Output is a decision documented in `docs/solutions/`. If the decision is to switch, a small follow-up commit (or a Phase E unit) does the switch.
 
-1. **Build a thin provider abstraction in `lib/eval/`** — sufficient for evaluation, not production-grade. Each provider adapter takes `ExtractionRequest` (system prompt + transcript + tool schema) and returns `ExtractionResponse` (structured moments + cost in USD + latency). This is throwaway-quality code in the eval harness; if we adopt a swap, the production code path gets its own clean abstraction in a follow-up.
+1. **Single throwaway script at `scripts/eval-models.ts`** — calls each provider's SDK inline (no shared abstraction). Captures cost, latency, structured-output result, and an `inspect-card`-style output dump per (model × episode). Throwaway code; if a swap is adopted, the production code path gets its own clean abstraction in a follow-up. If no swap, the script is deleted.
 
 2. **Models to evaluate at minimum:**
    - Claude Haiku 4.5 (current baseline, with caching from U2)
@@ -489,11 +535,12 @@ This unit is structured as an evaluation, not a production code change. Output i
    - Gemini 2.5 Flash ($0.30 / $2.50, with $0.03 cached input)
    - Gemini 2.5 Flash-Lite ($0.10 / $0.40)
    - GPT-4.1 Nano ($0.10 / $0.40 with 75% cache discount)
-   - DeepSeek V4 Flash ($0.14 / $0.28 with 98% cache discount — flag data-residency caveat)
 
 3. **Optional second batch if budget permits:**
    - Grok 3 Mini ($0.30 / $0.50, 131K context — tight for our use case)
    - GPT-5.4 Nano ($0.20 / $1.25 with 90% cache discount)
+
+**Explicitly excluded from this evaluation:** DeepSeek V4 Flash. Even though it's the cheapest viable option on raw token pricing, its API is hosted in China and podcast transcripts (player quotes, opinions about teams, potentially sensitive editorial content) would transit a cross-jurisdiction data boundary. Decision made at plan time (2026-05-12): not worth the data-residency risk for a US sports app. Revisit if Podium ever offers a self-hostable mode or DeepSeek opens a non-China region.
 
 4. **Evaluation matrix (per model):**
    - Per-episode call cost (real measurement against a 49ers podcast episode)
@@ -505,6 +552,10 @@ This unit is structured as an evaluation, not a production code change. Output i
    - Total cost projection per-team-per-day at production scale
 
 5. **Decision output:** `docs/solutions/2026-05-12-model-evaluation.md` with the matrix, scored cells, and a recommendation. User makes the final call based on the data; agent can recommend but does not unilaterally switch.
+
+6. **Explicit cost-trigger threshold for adoption:** the recommendation should be framed as "switch IF winner beats Claude by ≥30% on per-team-per-day cost projection AND content-quality is at least equivalent in user blind comparison." Below that threshold, the engineering cost of swapping providers (rewriting tool-calling format, integrating new SDK, validating in production) is not justified by the savings. State this threshold up front so the matrix is read against it.
+
+7. **Particle paid-tier checkpoint:** before running the eval harness, verify Particle's paid-tier per-call pricing matches the pricing model in `unit-economics.md`. If pricing has shifted from the Starter-tier numbers used in the cost model, update CE1's per-team-day projections (and possibly CE1's target) before proceeding. Otherwise the model-eval matrix will be projecting against stale Particle pricing.
 
 6. **If decision is to swap:** the matrix doc itself flags follow-up work; switch lands in a separate commit (or new mini-unit U8). If decision is to stay on Claude: doc captures the evidence backing the decision.
 
@@ -562,7 +613,11 @@ This work touches: RLS policies (cards become a shared content model with per-us
 
 ## Key Technical Decisions
 
-- **Per-team factory-level cost attribution** (U1) **over per-call options.** `createParticleClient({ supabase, teamId })` closes over the teamId; every call automatically attributes. Cleaner than threading teamId through every call site. Trade-off: one client per (team, request) lifecycle. Acceptable — clients are cheap to construct.
+- **Per-team factory-level cost attribution** (U1) **over per-call options.** `createParticleClient({ supabase, teamId })` closes over the teamId; every call automatically attributes. Cleaner than threading teamId through every call site. Trade-off: one client per (team, request) lifecycle. Acceptable — clients are cheap to construct. `teamId` is validated against `config/teams.ts` at factory construction so a misspelled or stale team identifier fails fast rather than corrupting cost data.
+
+- **U2 (caching fix) ships before U1 (cost attribution)**, even though U1 is the "measurement foundation." Reason: U2's verification doesn't require per-team attribution — `inspect-costs` already reports cache hit rate. Shipping U2 first delivers the highest-confidence quick win (~1 hour of work, biggest single-line Anthropic cost cut) and generates evidence the plan's premise works before committing to U1's cross-cutting refactor. Phase A intra-ordering: U2 → U1 → U3 → U8.
+
+- **`refactor` plan type framing.** Several workstreams ship genuinely new behavior (cadence policy, force-reprocess flag, model evaluation, prompt versioning) — `feat` or `perf` could be more accurate. Kept as `refactor` because the primary intent and largest unit (U4 per-episode pipeline) is structural reshaping of existing code. Naming-only call; doesn't affect the work.
 
 - **Per-episode pipeline using inline `windows[].lines[]` if sufficient** (U4) **over per-episode transcript fetch.** Particle returns inline line-level context with every mention. The cheapest possible pipeline uses *only* that context. The investigation in U4 Stage 1 determines whether to commit fully or fall back to per-episode transcript fetches. Either path is 6× cheaper than per-segment.
 
@@ -592,6 +647,12 @@ This work touches: RLS policies (cards become a shared content model with per-us
 
 - **Risk: $0.20/team/day target is too aggressive.** Particle's `mentions` calls alone are fixed cost ~$0.30/day (30 entities × $0.008 with one search per entity per run). If our entity count grows, the floor rises. Mitigation: revisit unit-economics doc when adding teams with substantially different entity counts; target may need to flex. Probability: medium long-term. Impact: medium (could require additional architectural moves to hit the goal at scale).
 
+- **Risk: this plan succeeds against CE1 but unit economics still don't work at user scale.** CE1 measures per-team-per-day cost in a single-user reality where "per-team" and "per-user" are the same number. The Pro-tier $3.99 pricing only makes margin once multiple users share a team's ingestion cost (multi-tenant sharing, deferred to a v2 plan). This plan is **necessary but not sufficient** for unit economics. The second necessary leg — multi-tenant ingest sharing so per-user cost amortizes across subscribers — is captured as a follow-up in `docs/strategy/unit-economics.md` and must ship before paid launch. Without it, the plan's success doesn't actually prove the $3.99 economics work in practice. Probability: this is true by definition. Impact: high (could mislead post-plan launch-readiness assessment).
+
+- **Risk: `team_id` misattribution corrupts cost-aggregation math.** U1 adds `team_id` as a free-form text column on `api_calls` with no FK and no validation. In v1 the only writer is the server-side pipeline, so misattribution is hard to introduce. In v2+ when multiple teams' pipelines run, a code path passing the wrong `teamId` (or `undefined` falling back to `null`) silently corrupts the per-team-cost numbers CE1 depends on. Mitigation: U1's factory-level validation should assert `teamId` is one of the known team IDs from `config/teams.ts` before constructing the client. Probability: low in v1, medium in v2. Impact: low (corrupted metric, not data loss).
+
+- **Risk: cost gate fails open + force flag = runaway cost potential.** `remainingStarterCreditUsd` in `lib/ingest/run.ts` returns `STARTER_CREDIT_USD` ($10) on any Supabase read error, effectively disabling the cost gate. Combined with U8's `?force=1` flag (which intentionally bypasses dedup), a period of intermittent DB connectivity during aggressive dev iteration creates a window where multiple full-reprocess runs proceed without cost-gate protection. Mitigation: add a secondary circuit breaker in `runDailyIngestion` that counts recent `system_alerts.kind = 'manual_run'` rows (not `api_calls`, which is the cost gate's data source) to detect "already ran in the last N minutes" independently of the cost calculation. Lands as a small follow-up to U8 if rate-limit testing reveals the gap. Probability: low. Impact: medium ($10 starter credit exhaustion in a single dev session).
+
 ---
 
 ## Dependencies / Prerequisites
@@ -609,7 +670,7 @@ This work touches: RLS policies (cards become a shared content model with per-us
 
 The plan succeeds when ALL of the following are true:
 
-- [ ] **CE1 met:** `npm run inspect-costs -- since=<7 days ago> group=team` reports per-team-per-day cost ≤ $0.20 for the 49ers team, over a 7-day rolling window of real ingestion runs.
+- [ ] **CE1 met:** `npm run inspect-costs -- since=<30 days ago> group=team` reports per-team-per-day cost ≤ $0.20 for the 49ers team, over a 30-day rolling window of real ingestion runs. (Note: in-season floor is ~$0.30/day per origin cost model; the ≤$0.20 target depends on cadence-policy off-season reduction averaging into the 30-day window. CE1 cannot be evaluated against a window that's purely in-season — wait for at least one cadence cycle.)
 - [ ] **CE2 met:** Anthropic cache hit rate ≥ 80% on `npm run inspect-costs` Anthropic detail.
 - [ ] **CE3 met:** `api_calls` table has `team_id` populated for all rows written by the ingest pipeline after U1 lands. `inspect-costs --group=team` is functional.
 - [ ] **CE4 met:** Per-segment Claude calls are eliminated from the runtime pipeline (verified via `api_calls` having zero `anthropic/summarize_segment` rows in a post-U4 ingestion window; only `anthropic/extract_episode_moments` remains).
