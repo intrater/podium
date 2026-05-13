@@ -9,7 +9,10 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/seed-supabase.ts"
+    "seed": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/seed-supabase.ts",
+    "inspect-card": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-card.ts",
+    "qa:screenshots": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/qa-screenshots.ts",
+    "inspect-costs": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-costs.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
@@ -41,6 +44,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "jsdom": "^29.1.1",
+    "playwright": "^1.60.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.5"
