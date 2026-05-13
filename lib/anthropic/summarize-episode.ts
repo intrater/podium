@@ -67,7 +67,9 @@ export async function summarizeEpisode(
         cache_control: { type: "ephemeral" },
       },
     ],
-    tools: [TOOL_DEFINITION],
+    // cache_control on the tools entry extends the cacheable prefix to
+    // cover system + tools. See summarize.ts for the full rationale.
+    tools: [{ ...TOOL_DEFINITION, cache_control: { type: "ephemeral" } }],
     tool_choice: { type: "tool", name: TOOL_NAME },
     messages: [{ role: "user", content: userMessage }],
   };

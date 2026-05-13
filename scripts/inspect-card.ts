@@ -48,7 +48,7 @@ async function main() {
   if (arg === "all") {
     console.log(`${cards.length} cards (newest → oldest):\n`);
     cards.forEach((card, i) => {
-      const ep = card.episodes as Record<string, unknown> | null;
+      const ep = card.episodes as unknown as Record<string, unknown> | null;
       const segs = (ep?.segments as unknown[]) ?? [];
       console.log(
         `  [${i}] ${(ep?.title as string)?.slice(0, 70).padEnd(70)} · ${segs.length} segments · ${card.total_relevant_seconds}s · ${card.surfaced_at}`,
@@ -63,7 +63,7 @@ async function main() {
     console.log(`No card at index ${idx}. Run with 'all' to list.`);
     return;
   }
-  const ep = card.episodes as Record<string, unknown>;
+  const ep = card.episodes as unknown as Record<string, unknown>;
   const podcast = ep?.podcasts as { name: string };
   const segments = (ep?.segments as Record<string, unknown>[]) ?? [];
   segments.sort(

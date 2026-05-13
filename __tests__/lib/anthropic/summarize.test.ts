@@ -289,6 +289,32 @@ describe("summarizeSegment — token cost telemetry", () => {
   });
 });
 
+describe("summarizeSegment — cache_control breakpoint covers system + tools", () => {
+  it("places cache_control on the system block AND the tools entry so the cacheable prefix covers both", async () => {
+    const recorded: RecordedCall[] = [];
+    const { messages, create } = makeSdkStub(
+      toolUseMessage({
+        is_team_relevant: true,
+        summary: "Stub",
+        pull_quotes: ["I think the most underrated thing about Brock Purdy this year is just how comfortable he looks in the pocket."],
+        bullets: ["a", "b", "c"],
+        surfacing_entities: ["brock-purdy"],
+      }),
+    );
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+    });
+    await summarizeSegment(client, baseInput);
+    const callArgs = create.mock.calls[0][0] as {
+      system: Array<{ cache_control?: { type: string } }>;
+      tools: Array<{ cache_control?: { type: string } }>;
+    };
+    expect(callArgs.system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(callArgs.tools[0].cache_control).toEqual({ type: "ephemeral" });
+  });
+});
+
 describe("summarizeSegment — cache-hit cost math", () => {
   it("applies the cache-read discount when cache_read_input_tokens is non-zero", async () => {
     const recorded: RecordedCall[] = [];
@@ -562,5 +588,43 @@ describe("summarizeEpisode", () => {
     expect(result?.summary).toContain("OL");
     expect(create).toHaveBeenCalledTimes(1);
     expect(recorded[0].endpoint).toBe("summarize_episode");
+  });
+
+  it("places cache_control on the system block AND the tools entry (covers full prefix)", async () => {
+    const recorded: RecordedCall[] = [];
+    const message: MessageLike = {
+      id: "msg_ep",
+      type: "message",
+      role: "assistant",
+      model: "claude-haiku-4-5",
+      stop_reason: "tool_use",
+      stop_sequence: null,
+      content: [
+        {
+          type: "tool_use",
+          id: "tu_ep",
+          name: "submit_episode_summary",
+          input: { summary: "Stub." },
+        },
+      ],
+      usage: { input_tokens: 800, output_tokens: 60 },
+    };
+    const create = vi.fn().mockResolvedValueOnce(message);
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages: { create } } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+    });
+    await summarizeEpisode(client, {
+      team: baseInput.team,
+      podcast: { name: "Test" },
+      episode: { title: "Test" },
+      segmentSummaries: [{ title: "x", summary: "y" }],
+    });
+    const callArgs = create.mock.calls[0][0] as {
+      system: Array<{ cache_control?: { type: string } }>;
+      tools: Array<{ cache_control?: { type: string } }>;
+    };
+    expect(callArgs.system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(callArgs.tools[0].cache_control).toEqual({ type: "ephemeral" });
   });
 });

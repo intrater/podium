@@ -104,7 +104,11 @@ export async function summarizeSegment(
         cache_control: { type: "ephemeral" },
       },
     ],
-    tools: [TOOL_DEFINITION],
+    // cache_control on the tools entry extends the cacheable prefix to
+    // cover system + tools. Without it, the cache key boundary sits only
+    // on the system block, leaving the tool definition outside the cache
+    // — every call re-encodes the tools and the hit rate stays at 0%.
+    tools: [{ ...TOOL_DEFINITION, cache_control: { type: "ephemeral" } }],
     tool_choice: { type: "tool", name: TOOL_NAME },
     messages: [{ role: "user", content: userMessage }],
   };
