@@ -461,13 +461,153 @@ describe("runIngestPipeline — empty Particle results", () => {
 
 // ─── Cross-run dedupe ──────────────────────────────────────────────
 
+describe("runIngestPipeline — prompt versioning (U5)", () => {
+  // Shared fixture for the three version-aware dedup scenarios.
+  function mentionFixtureForExistingSegment(): ParticleMentionResult {
+    return {
+      episode: {
+        id: "ep_existing",
+        title: "Already-seen",
+        podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+        published_at: "2026-05-08T00:00:00Z",
+      },
+      mention_count: 1,
+      windows: [
+        {
+          segment: { id: "seg_existing", title: "Same segment" },
+          start_seconds: 5,
+          end_seconds: 30,
+        },
+      ],
+    };
+  }
+
+  it("re-processes a segment when its stored prompt_version is mismatched (e.g. 'legacy' backfill)", async () => {
+    const { client, store } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+      segments: [
+        {
+          id: "existing_seg",
+          particle_segment_id: "seg_existing",
+          episode_id: "ep_existing",
+          prompt_version: "legacy",
+        },
+      ],
+    });
+    const particle = makeParticleStub({
+      mentions: { ent_purdy: [mentionFixtureForExistingSegment()] },
+      transcripts: { ep_existing: { text: "Should be re-processed under v1." } },
+    });
+    const anthropic = makeAnthropicStub({
+      ep_existing: {
+        moments: [
+          {
+            particle_segment_id: "seg_existing",
+            start_seconds: 5,
+            end_seconds: 30,
+            summary: "Fresh under v1.",
+            pull_quotes: [],
+            bullets: ["a", "b", "c"],
+            surfacing_entities: ["brock-purdy"],
+          },
+        ],
+        episode_rollup: "Rollup.",
+      },
+    });
+
+    const out = await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+      },
+    );
+    // Re-extraction fired — anthropic call, segments upsert, card written.
+    expect(out.anthropicCallsAttempted).toBe(1);
+    // Segment row was upserted (existing row updated, not duplicated).
+    const segmentRows = store.segments;
+    expect(segmentRows).toHaveLength(1);
+    expect((segmentRows[0] as { prompt_version: string }).prompt_version).toBe("v1");
+  });
+
+  it("writes prompt_version='v1' on every new segment row", async () => {
+    const { client, store } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    });
+    const particle = makeParticleStub({
+      mentions: {
+        ent_purdy: [
+          {
+            episode: {
+              id: "ep_new",
+              title: "New",
+              podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+              published_at: "2026-05-09T12:00:00Z",
+            },
+            mention_count: 1,
+            windows: [
+              {
+                segment: { id: "seg_new", title: "New seg" },
+                start_seconds: 10,
+                end_seconds: 60,
+              },
+            ],
+          },
+        ],
+      },
+      transcripts: { ep_new: { text: "Fresh content." } },
+    });
+    const anthropic = makeAnthropicStub({
+      ep_new: {
+        moments: [
+          {
+            particle_segment_id: "seg_new",
+            start_seconds: 10,
+            end_seconds: 60,
+            summary: "Summary.",
+            pull_quotes: [],
+            bullets: ["a", "b", "c"],
+            surfacing_entities: ["brock-purdy"],
+          },
+        ],
+        episode_rollup: "Rollup.",
+      },
+    });
+
+    await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+      },
+    );
+    expect(store.segments).toHaveLength(1);
+    expect((store.segments[0] as { prompt_version: string }).prompt_version).toBe("v1");
+  });
+});
+
 describe("runIngestPipeline — cross-run dedupe", () => {
-  it("skips segments whose particle_segment_id already exists in the segments table", async () => {
+  it("skips segments whose particle_segment_id already exists at the current prompt_version", async () => {
     const { client } = makeSupabaseStub({
       team: teamFixture,
       universe: universeFixture,
       podcasts: podcastsFixture,
-      segments: [{ id: "existing_seg", particle_segment_id: "seg_existing", episode_id: "ep_existing" }],
+      // The fixture row matches the current EPISODE_EXTRACTION_PROMPT_VERSION
+      // so it counts as fully processed — pipeline must skip it.
+      segments: [
+        {
+          id: "existing_seg",
+          particle_segment_id: "seg_existing",
+          episode_id: "ep_existing",
+          prompt_version: "v1",
+        },
+      ],
     });
     const particle = makeParticleStub({
       mentions: {

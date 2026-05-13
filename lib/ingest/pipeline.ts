@@ -31,12 +31,13 @@ import type {
 } from "@/lib/particle/types";
 import { paginateAll } from "@/lib/particle/client";
 import { extractEpisodeMoments } from "@/lib/anthropic/extract-episode-moments";
-import type {
-  EpisodeExtractionOutput,
-  EpisodeMoment,
-  MentionAnchor,
-  TeamContext,
-  TranscriptLine,
+import {
+  EPISODE_EXTRACTION_PROMPT_VERSION,
+  type EpisodeExtractionOutput,
+  type EpisodeMoment,
+  type MentionAnchor,
+  type TeamContext,
+  type TranscriptLine,
 } from "@/lib/anthropic/types";
 
 import type {
@@ -266,6 +267,9 @@ export async function runIngestPipeline(
         pull_quotes: [...moment.pull_quotes],
         bullets: [...moment.bullets],
         surfacing_entities: [...moment.surfacing_entities],
+        // U5: tag every persisted row with the prompt version that
+        // produced it. Future prompt bumps re-process on the next run.
+        prompt_version: EPISODE_EXTRACTION_PROMPT_VERSION,
       };
     });
     const { error: segErr, count: segCount } = await deps.supabase
@@ -419,14 +423,23 @@ async function filterAlreadyPersisted(
   const segmentIds = items.map((i) => i.segment.id);
   const { data: existing, error } = await supabase
     .from("segments")
-    .select("particle_segment_id")
+    .select("particle_segment_id, prompt_version")
     .in("particle_segment_id", segmentIds);
   if (error) {
     console.error(`pipeline: cross-run dedupe lookup failed: ${error.message}`);
     return items;
   }
-  const persisted = new Set((existing ?? []).map((row) => row.particle_segment_id));
-  return items.filter((i) => !persisted.has(i.segment.id));
+  // U5: a row counts as "already persisted" only if its prompt_version
+  // matches the current extraction prompt. Mismatched versions flow back
+  // through extraction so prompt iterations don't require a manual
+  // `?force=1` ceremony. Backfilled "legacy" rows from migration 0014
+  // count as mismatches and get re-processed on the first post-U5 run.
+  const persistedAtCurrentVersion = new Set(
+    (existing ?? [])
+      .filter((row) => row.prompt_version === EPISODE_EXTRACTION_PROMPT_VERSION)
+      .map((row) => row.particle_segment_id),
+  );
+  return items.filter((i) => !persistedAtCurrentVersion.has(i.segment.id));
 }
 
 /**

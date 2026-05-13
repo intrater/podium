@@ -169,6 +169,19 @@ export const ANTHROPIC_HAIKU_PRICE_USD = {
 
 export const ANTHROPIC_MODEL = "claude-haiku-4-5" as const;
 
+/**
+ * Version tag for the per-episode extraction prompt (U5 of the
+ * cost-optimization plan). Bumped manually when the prompt is
+ * intentionally changed — the pipeline's cross-run dedupe filter
+ * compares this against `segments.prompt_version` and re-processes
+ * segments whose stored version doesn't match.
+ *
+ * Conventions: use simple monotonic strings like "v1", "v2". Don't
+ * include the date or commit SHA — those drift with formatting
+ * changes that don't actually need re-extraction.
+ */
+export const EPISODE_EXTRACTION_PROMPT_VERSION = "v1" as const;
+
 export function computeCallCost(usage: AnthropicUsage): number {
   const baseInput = usage.inputTokens * ANTHROPIC_HAIKU_PRICE_USD.inputPerToken;
   const cacheWrite =
