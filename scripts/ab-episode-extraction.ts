@@ -316,8 +316,11 @@ async function runExtraction(
   };
 
   const r: Message = await sdk.messages.create(params);
-  const toolUse = r.content.find((b): b is { type: "tool_use"; id: string; name: string; input: unknown } => b.type === "tool_use");
-  const output = toolUse ? (toolUse.input as ExtractionOutput) : null;
+  const toolUse = r.content.find((b) => b.type === "tool_use");
+  const output =
+    toolUse && toolUse.type === "tool_use"
+      ? ((toolUse as unknown as { input: ExtractionOutput }).input)
+      : null;
   return {
     output,
     usage: {

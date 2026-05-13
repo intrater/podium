@@ -48,6 +48,63 @@ export interface EpisodeSummary {
   summary: string;
 }
 
+// ─── Per-episode extraction (U4) ──────────────────────────────────────
+
+/**
+ * One line of an episode transcript. Mirrors `ParticleTranscriptLine`
+ * but kept in this provider-agnostic module so the extraction call
+ * doesn't import from `lib/particle`.
+ */
+export interface TranscriptLine {
+  start_seconds: number;
+  end_seconds: number;
+  speaker?: string;
+  text: string;
+}
+
+/**
+ * A segment that Particle's search/mention endpoints flagged as relevant.
+ * The extractor uses these as "anchors of interest" but is free to find
+ * adjacent moments worth surfacing too. Carries `particle_segment_id` so
+ * the output's moments can be mapped back to existing rows in `segments`.
+ */
+export interface MentionAnchor {
+  particle_segment_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  title?: string;
+  /** "entity" (from searchEntityMentions) or "keyword"/"semantic" (from searchByContent). */
+  match_source: "entity" | "keyword" | "semantic";
+  /** Entity slugs that surfaced this segment (for entity matches). */
+  surfacing_entities?: readonly string[];
+}
+
+export interface EpisodeExtractionInput {
+  team: TeamContext;
+  podcast: { name: string; kind: "team-specific" | "national" };
+  episode: { title: string; published_at?: string };
+  /** Full episode transcript (line-level). */
+  transcript: readonly TranscriptLine[];
+  /** Particle-flagged segments to use as relevance anchors. */
+  anchors: readonly MentionAnchor[];
+}
+
+export interface EpisodeMoment {
+  /** Mapped to an originating Particle segment; required for idempotent persistence. */
+  particle_segment_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  summary: string;
+  pull_quotes: readonly string[];
+  bullets: readonly string[];
+  surfacing_entities: readonly string[];
+}
+
+export interface EpisodeExtractionOutput {
+  moments: readonly EpisodeMoment[];
+  episode_rollup: string;
+}
+
 // ─── Errors ────────────────────────────────────────────────────────────
 
 export class AnthropicError extends Error {
