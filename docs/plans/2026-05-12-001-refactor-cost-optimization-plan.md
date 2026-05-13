@@ -5,8 +5,9 @@ plan-id: 2026-05-12-001
 type: refactor
 title: "Drive Podium ingest cost to ≤$0.20/team/day"
 origin: docs/strategy/unit-economics.md
-revised: 2026-05-13 (Phase A executed — U1/U3/U8 verified live; U2 shipped structurally but runtime cache verification failed — open bug)
+revised: 2026-05-13 (Phase A executed — U1/U3/U8 verified live; U2 root cause diagnosed — dormant until U4 grows the prefix past Haiku 4.5's 4,096-token cache minimum)
 prior-revisions:
+  - 2026-05-13 (later) — Diagnosed the U2 cache miss. Root cause: Claude Haiku 4.5's documented minimum cacheable prefix is **4,096 tokens**, not the 2,048 the plan assumed. Our cacheable prefix (system + tools) is ~2,800 tokens — silently below the threshold. Anthropic returns 0/0 on both `cache_creation_input_tokens` and `cache_read_input_tokens` with no error when this happens. The marker placement was correct; the four "ranked suspects" in the prior revision were all wrong trees. Verified via `scripts/debug-cache.ts` — same code path with a ~7,921-token padded prefix cached perfectly. Decision: don't pad `SHARED_RULES` purely to clear the threshold; U4's per-episode extraction will rewrite the prompt with full episode transcripts in context, naturally clearing 4,096. U2 is marked dormant and will turn on automatically once U4 ships. Solutions doc at `docs/solutions/2026-05-13-anthropic-haiku-4-5-cache-minimum.md`.
   - 2026-05-13 — Phase A `/ce-work` autonomous overnight execution. Four commits on main pushed to origin. U2 (caching fix) shipped the structural marker placement on system + tools per Anthropic SDK types, and 5 new unit-test assertions pass; live verification run (24 Anthropic calls under `?force=1`) showed cache_creation_input_tokens=0 AND cache_read_input_tokens=0 on every row — Anthropic isn't honoring the marker. U1, U3, U8 verified end-to-end on live data. See "Next-session pickup" section below.
   - 2026-05-12 — interactive walkthrough of the 6-reviewer doc-review pass. 8 substantive decisions baked in (path-1 persistence shape, CE1 → 30-day window, U5 split into U5+U8, U4 Stage 1.5 A/B, U7 simplified + DeepSeek excluded, Phase A reordered U2-first, U6 multi-team-ready retained).
 related-plans:
@@ -138,12 +139,12 @@ The cost delta: N segments (~50/day) → M episodes (~8/day). Roughly 6× reduct
 
 ## Unit Status
 
-Last updated: 2026-05-13 (Phase A executed overnight).
+Last updated: 2026-05-13 (Phase A executed overnight; U2 root cause diagnosed later that day).
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
 | **Phase A — Measurement, quick wins & iteration scaffolding** | | | |
-| U2 | Anthropic prompt caching fix | **shipped, runtime verification FAILED** (commit `d4d605e`) | Structural change correct per Anthropic SDK types: `cache_control: { type: "ephemeral" }` added to TOOL_DEFINITION in both `summarize.ts:107` + `summarize-episode.ts:70` (covers system + tools as the cacheable prefix). 5 new unit tests pass (assert markers present on both system and tools entries). **Live verification on 2026-05-13 02:31 UTC FAILED: 24 Anthropic calls under `?force=1`, every row reported `cache_creation_input_tokens=0` AND `cache_read_input_tokens=0`.** Anthropic isn't honoring the marker — not even on the first call. See "Next-session pickup" below for top suspects. |
+| U2 | Anthropic prompt caching fix | **structurally shipped, DORMANT until U4** (commit `d4d605e`) | Marker placement is correct: `cache_control: { type: "ephemeral" }` on both `system[0]` and `tools[0]` in `summarize.ts:104,111` + `summarize-episode.ts:67,72`. 5 unit tests pass. **Root cause of the 0% cache hit rate: Claude Haiku 4.5's minimum cacheable prefix is 4,096 tokens, not the 2,048 the plan originally assumed.** Our current cacheable prefix (system + tools) is ~2,800 tokens, silently below the threshold; Anthropic returns 0/0 with no error when this happens. Verified via `scripts/debug-cache.ts` (kept in repo) — same code path with a padded ~7,921-token prefix caches perfectly. Decision: do NOT pad `SHARED_RULES` purely to clear the threshold — U4's per-episode extraction will rewrite the prompt with full episode transcripts in context, which naturally clears 4,096 tokens. U2 will activate automatically once U4 ships. Full learnings doc: `docs/solutions/2026-05-13-anthropic-haiku-4-5-cache-minimum.md`. |
 | U1 | Per-team cost attribution on `api_calls` | **done** (commit `2fea304`) | Migration `0012_api_calls_team_id.sql` applied to live DB. `teamId` threaded factory-level through `createParticleClient` + `createAnthropicClient` + their inner `logCall`/`logApiCall` row-construction functions. Factory-time validation against `config/teams.ts` fails fast on misspelled team IDs. All three call sites pass `teamId: "49ers"`. `inspect-costs` gains `--group=team` and `--team=<id>` flags. 6 new unit tests. Live verified: every new api_calls row written under `team_id="49ers"`. |
 | U3 | Verify list-call leak origin | **done** (commit `5802a0c`) | Built `scripts/inspect-list-calls.ts`. Diagnostic on live data: **127/127 list calls fall outside ingest run windows** — confirmed source is seed/test, not the daily worker. No code fix needed in the ingest path. Live-DB seed test now gated behind `PODIUM_RUN_LIVE_TESTS=true` env var (test suite went 40s → 2.2s). Solutions doc at `docs/solutions/2026-05-12-list-call-investigation.md`. |
 | U8 | Force-reprocess flag (iteration scaffolding) | **done** (commit `705858c`) | `INGEST_FORCE_REPROCESS` env var added to `lib/env.ts` (mirrors `INGEST_DEV_MODE` pattern). `?force=1` query param parsed on `POST /api/ingest`, OR'd with env var, threaded to `runDailyIngestion` → `IngestPipelineInput.forceReprocess` → `filterAlreadyPersisted` bypass. 3 new unit tests: force=true propagates; default false; rate limit still fires under force. Live verified: `curl POST /api/ingest?force=1` re-summarized every segment ($0.97 in dev mode); rate-limit returned 429 on rapid repeat. |
@@ -157,39 +158,18 @@ Last updated: 2026-05-13 (Phase A executed overnight).
 
 ### Next-session pickup (start here in a fresh chat)
 
-Phase A shipped overnight (4 commits, all pushed to `origin/main`). The agent's recommendation when restarting work: **debug U2's cache miss first**, then proceed to U4.
+Phase A is complete. U2 was diagnosed in a follow-up debugging session: the structural fix is correct but **dormant until U4 grows the prompt past Claude Haiku 4.5's 4,096-token caching minimum**. None of the four ranked suspects from the prior revision was the real cause — Anthropic was silently skipping caching because our ~2,800-token prefix is below the model's threshold. Full diagnosis and how-to-detect-this writeup at `docs/solutions/2026-05-13-anthropic-haiku-4-5-cache-minimum.md`. The diagnostic script `scripts/debug-cache.ts` is kept in-repo for future use (U7 model swap will need it to test each candidate's cache minimum).
 
-**The open bug — U2 caching not firing at runtime:**
+**Start the next session on U4.** Stage 0 (clean baseline before refactor) is the very first step — read U4's section below for the staged plan. Stage 1 begins the investigation into `SearchResult.windows[].lines[]` as the transcript-fetch replacement. Multiple prompt iteration cycles are expected within U4 before user sign-off on content shape.
 
-Live verification on 2026-05-13 02:31 UTC ran `POST /api/ingest?force=1` in dev mode. 24 Anthropic calls fired. Every row in `api_calls` for that window reports `cache_creation_input_tokens=0` AND `cache_read_input_tokens=0`. Anthropic isn't even creating the cache on the first call, let alone hitting it on subsequent ones.
-
-Already ruled out:
-- SDK version supports it. `@anthropic-ai/sdk@0.95.1`. Tool type explicitly has `cache_control?: CacheControlEphemeral | null` per `node_modules/@anthropic-ai/sdk/resources/messages/messages.d.ts:1134`.
-- Token count clears the minimum. ~3,300 input tokens per call; the cacheable prefix (`SHARED_RULES` ~1,891 + team context ~100 + TOOL_DEFINITION ~150) is ~2,150 tokens, well over the 1,024-token Anthropic minimum.
-- Model supports caching. `claude-haiku-4-5`.
-- The marker placement passes unit tests — `__tests__/lib/anthropic/summarize.test.ts` asserts `callArgs.system[0].cache_control` AND `callArgs.tools[0].cache_control` are both `{ type: "ephemeral" }`.
-
-Top suspects, ranked by likelihood:
-
-1. **The spread `{ ...TOOL_DEFINITION, cache_control: ... }` may not survive serialization to the actual HTTP body.** Verify by adding a one-time `console.log(JSON.stringify(baseParams, null, 2))` immediately before `sdk.messages.create(params)` in `lib/anthropic/client.ts:67` and grepping the output for `cache_control`. Should appear twice (system + tools). If only on system, the spread isn't reaching the wire.
-
-2. **Anthropic's auto-apply via top-level `cache_control`.** The SDK exposes `MessageCreateParams.cache_control` (`messages.d.ts:1983`) that "automatically applies a cache_control marker to the last cacheable block." Quick alternative: drop the per-block markers, set `cache_control: { type: "ephemeral" }` at the top level of `baseParams`, retest. Either confirms the per-block approach is broken or shifts the bug surface.
-
-3. **System prompt content varying per call.** `buildSegmentSummarySystemPrompt(input.team)` only takes `team` and v1 has one team — so the prompt SHOULD be identical across calls. But worth confirming by hashing the first system block content across all 24 calls in the verification run; any hash mismatch invalidates the cache.
-
-4. **`SHARED_RULES` accidentally contains a per-call template-string injection.** Less likely but cheap to check — `grep` `SHARED_RULES` in `lib/anthropic/prompts/segment-summary.ts` for any `${...}` interpolation. Should be a static string.
-
-Verification path once a fix is identified: run another `POST /api/ingest?force=1` in dev mode (~$0.30 expected post-fix because cache should hit). Inspect-costs Anthropic detail section should report cache hit rate ≥80% AND Anthropic cost per ingest drop ≥50% vs. the 2026-05-13 02:31 baseline.
-
-After U2 verifies clean, proceed to U4 — that's where the user sign-off gate fires.
+When U4 ships, **U2 verification gets reopened**: run `scripts/debug-cache.ts` against the new per-episode prompt (or watch `cache_creation_input_tokens` on the first live ingest call). If the episode-level prefix clears 4,096 tokens, caching will fire automatically and U2 graduates from dormant to verified.
 
 ### What's blocked on the user
 
-1. **U2 cache fix verification.** Currently blocked on diagnosis. If 30-minute investigation doesn't find it, this becomes a real decision point (skip U2's expected ~60% Anthropic cost reduction, or block U4 pending deeper investigation).
-2. **Content-shape sign-off in U4** — multiple iteration cycles expected. User reviews `inspect-card` output and `qa:screenshots` after each prompt iteration; unit isn't done until user approves the shape.
-3. **Model-swap decision in U7** — final pick requires user judgment on content quality from the side-by-side comparison.
+1. **Content-shape sign-off in U4** — multiple iteration cycles expected. User reviews `inspect-card` output and `qa:screenshots` after each prompt iteration; unit isn't done until user approves the shape.
+2. **Model-swap decision in U7** — final pick requires user judgment on content quality from the side-by-side comparison.
 
-Nothing blocked on user for U1–U3, U5, U6 — those are mechanical.
+Nothing blocked on user for U1–U3, U5, U6 — those are mechanical. U2 is no longer blocked on diagnosis; it's parked until U4's larger prompt clears Haiku's 4,096-token cache minimum.
 
 ---
 
@@ -268,7 +248,9 @@ Fix: add `cache_control: { type: "ephemeral" }` to the `TOOL_DEFINITION` block i
 
 **Alternative the SDK exposes:** `MessageCreateParams` has a top-level `cache_control` field (`messages.d.ts:1983`) that automatically applies a cache_control marker to the last cacheable block in the request. The plan's approach (annotating the tool directly) is more explicit and preferred — the auto-apply route is noted here in case the explicit annotation produces unexpected results during verification.
 
-Token-count sanity check from repo research: `SHARED_RULES` alone is ~1,891 tokens; combined with team context (entity list + storyline list) the system block clears the 1,024-token minimum prefix requirement Anthropic enforces. The prefix is well over threshold — caching is viable.
+~~Token-count sanity check from repo research: `SHARED_RULES` alone is ~1,891 tokens; combined with team context (entity list + storyline list) the system block clears the 1,024-token minimum prefix requirement Anthropic enforces. The prefix is well over threshold — caching is viable.~~
+
+**Correction (2026-05-13 diagnosis):** Claude Haiku 4.5's actual minimum cacheable prefix is **4,096 tokens, not 1,024**. The original sanity check used the wrong number. Our current prefix at ~2,800 tokens is below threshold; Anthropic silently skips caching when this happens, returning 0/0 on both cache_creation_input_tokens and cache_read_input_tokens with no error. U2's structural marker placement is correct and will activate automatically once U4's per-episode prompts (which carry full episode transcripts in the cached context) push the prefix past 4,096. See `docs/solutions/2026-05-13-anthropic-haiku-4-5-cache-minimum.md` for the full diagnosis and `scripts/debug-cache.ts` for the verification tool.
 
 **Patterns to follow:**
 - Existing cache_control marker pattern in `summarize.ts:100–106`.
