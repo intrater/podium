@@ -5,8 +5,9 @@ plan-id: 2026-05-09-001
 type: feat
 title: "Podium v1 — 49ers podcast digest"
 origin: docs/brainstorms/podium-v1-requirements.md
-revised: 2026-05-10 (execution sync — U5–U9 + U8 shipped; architecture deviation captured)
+revised: 2026-05-12 (execution sync — U10–U13 + code-review pass shipped; only U4 DNS + Vercel env vars + first push remain)
 prior-revisions:
+  - 2026-05-12 — U10–U13 (Phase D) shipped: design tokens, mobile-first digest grid with AE3 feedback filter, MVP audio player with segment-level transcript, feedback bar with optimistic Undo. Code-review pass (ab144b3) caught and fixed a P0 broken /api/feedback INSERT (missing user_id) plus 3 P1 reliability gaps; 9 safe_auto cleanups bundled. 178 tests pass. Output Structure annotations + Unit Status table + Residual review findings synced.
   - 2026-05-10 — synced sections that drifted from what shipped: single Supabase project (not staging+prod), Vercel Cron + bounded concurrency (not Deno Edge Function + pg_cron + sharded ingest_jobs), Node-only pipeline (no Deno mirror). U8 architecture decision recorded in the unit body + Key Technical Decisions.
   - 2026-05-09 round 2 — added unit status tracker, updated frontmatter.
   - 2026-05-09 round 1 — applied ce-doc-review findings (P0 architectural fix, ~10 P1 fixes, ~10 P2 fixes, 6 safe-auto fixes).
@@ -131,26 +132,28 @@ The eight Q&A clarifications captured during planning, layered on top of the bra
 podium/
 ├── app/                          # Next.js pages
 │   ├── (app)/                    # Authenticated app group (no real auth in v1, structure ready for v3)
-│   │   ├── layout.tsx            # Sidebar, header, theme tokens                [U10 — not started]
-│   │   ├── page.tsx              # Mobile-first digest grid (RSC)               [U11 — not started]
-│   │   └── episodes/[id]/
-│   │       └── page.tsx          # Expanded episode card with player            [U11/U12 — not started]
+│   │   ├── layout.tsx            # Top app bar (team chip, settings slot) + Toaster                  [U11 ✅]
+│   │   ├── page.tsx              # Mobile-first digest grid (RSC) — Promise.allSettled-tolerant      [U11 ✅, P1 fix in ab144b3]
+│   │   ├── actions.ts            # retryDailyIngestion server action — rate-limited per 60s          [U11 ✅, P1 fix in ab144b3]
+│   │   └── (no episodes/[id]/ route in v1 — Sheet covers the expanded view; deep-link route deferred)
 │   ├── api/
 │   │   ├── ingest/
-│   │   │   ├── route.ts          # Manual "Run now" trigger (POST, CRON_SECRET, rate-limited)   [U8 ✅]
-│   │   │   └── status/route.ts   # GET — most-recent system_alerts row, derived status         [U8 ✅]
+│   │   │   ├── route.ts          # Manual "Run now" trigger (POST, CRON_SECRET, rate-limited)        [U8 ✅]
+│   │   │   └── status/route.ts   # GET — most-recent system_alerts row, derived status               [U8 ✅]
 │   │   ├── cron/
 │   │   │   └── daily-digest/
-│   │   │       └── route.ts      # GET — Vercel Cron daily 6am ET trigger       [U8 ✅]
-│   │   └── feedback/route.ts     # Per-segment feedback writes                  [U13 — not started]
-│   ├── layout.tsx                # Root layout, theme tokens, fonts, hardcoded data-team="49ers"
-│   └── globals.css               # @import "tailwindcss"; @theme; @property
+│   │   │       └── route.ts      # GET — Vercel Cron daily 6am ET trigger                            [U8 ✅]
+│   │   └── feedback/route.ts     # Per-card feedback writes — anon-key + stub-JWT, RLS-exercised     [U13 ✅, P0 user_id fix in ab144b3]
+│   ├── layout.tsx                # Root layout, theme tokens, fonts, hardcoded data-team="49ers"     [U10 ✅]
+│   └── globals.css               # Podium tokens + @property + motion timing + reduced-motion       [U10 ✅]
 │
 ├── components/
-│   ├── ui/                       # shadcn primitives                            [U2 ✅]
-│   ├── digest/                   # Card-per-episode UI                          [U11 — not started]
-│   ├── player/                   # MVP audio player + segment-level highlight   [U12 — not started]
-│   ├── feedback/                 # The 3-button feedback bar                    [U13 — not started]
+│   ├── ui/                       # shadcn primitives                                                 [U2 ✅]
+│   ├── digest/                   # episode-card, loading-skeleton, loading-state, empty-fallback,
+│   │                             #   refresh-banner                                                  [U11 ✅]
+│   ├── player/                   # audio-player, scrubber, transcript, playback-states,
+│   │                             #   motion-presets                                                  [U12 ✅]
+│   ├── feedback/                 # 3-button feedback bar (icon-only, 44pt)                           [U13 ✅]
 │   └── (no theme/ in v1 — single hardcoded team)
 │
 ├── lib/
@@ -161,6 +164,9 @@ podium/
 │   ├── universes/                # 49ers universe (entities + storylines)                            [U6 ✅]
 │   ├── seed/                     # Seed runner + Particle slug→id resolver                          [U6 + pre-U8 ✅]
 │   ├── ingest/                   # types.ts (shared), pipeline.ts (core), run.ts (wrapper)           [U8 ✅]
+│   ├── digest/                   # load-cards.ts: AE3 anti-join loader + DigestRunStatus + helpers   [U11 ✅]
+│   ├── audio/                    # use-audio-element.ts (hook) + format-time.ts                      [U12 ✅]
+│   ├── feedback/                 # optimistic.ts: submitNotRelevant (Undo flow) + submitFeedback     [U13 ✅]
 │   └── env.ts                    # Typed, validated env vars (server/client split via @t3-oss/env-nextjs)   [U3 ✅]
 │
 ├── config/
@@ -183,7 +189,7 @@ podium/
 │   ├── brainstorms/              # (existing) requirements doc
 │   ├── plans/                    # (existing) this file
 │   ├── particle/                 # User-fetched Particle docs (gitignored, populated during U1)
-│   └── solutions/                # Per-unit learnings (particle-api-shape, particle-cost-estimate, env-and-secrets-setup)
+│   └── solutions/                # Per-unit learnings (particle-api-shape, particle-cost-estimate, env-and-secrets-setup, cost-monitoring)
 │
 ├── middleware.ts                 # Supabase session refresh (no-op in v1; active in v3)
 ├── next.config.ts
@@ -202,12 +208,14 @@ Markers: ✅ = landed in commits to date. The implementer may adjust the structu
 - `supabase/functions/daily-digest/` was never created — the Deno Edge Function path was replaced by `/api/cron/daily-digest` (see U8 unit body).
 - `lib/seed/` is a new subdir not in the original tree — added because the seed runner needed a Particle resolver outside the server-only graph.
 - `scripts/seed-supabase.ts` is a new file — runs the seed via Node 24's native TS support (`--experimental-transform-types`).
+- `lib/digest/`, `lib/audio/`, and `lib/feedback/` are new subdirs introduced during Phase D for loader, audio hook + formatter, and optimistic feedback flow respectively. Note: `lib/audio/use-audio-element.ts` is a React hook and technically violates the AGENTS.md "`lib/<domain>/` for non-React modules" convention — flagged for relocation in the U10–U13 follow-up section below.
+- `app/(app)/actions.ts` is a Next.js 16 server action — couldn't go through the existing CRON_SECRET-gated `POST /api/ingest` route because that would expose the secret to the browser bundle.
 
 ---
 
 ## Unit Status
 
-Last updated: 2026-05-10 (thorough sync — frontmatter, system diagram, data flow, output tree, U3 + U5 + U8 bodies, Key Decisions, Risks, Dependencies, Operational Notes all reflect as-shipped state)
+Last updated: 2026-05-12 (Phase D shipped — U10–U13 + code-review pass. Only U4 DNS, Vercel env-var mirror, and first push remain before launch.)
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
@@ -224,17 +232,21 @@ Last updated: 2026-05-10 (thorough sync — frontmatter, system diagram, data fl
 | U8 | Daily ingestion worker | **done** | `lib/ingest/{types,pipeline,run}.ts` + `app/api/ingest/{route,status/route}.ts` + `app/api/cron/daily-digest/route.ts` + `vercel.json` cron schedule (6am ET daily) + 21 unit tests. Pipeline verified end-to-end against live APIs (2 episodes, 18 segments, 2 cards in 185s; $0.97). Bounded segment-level concurrency (5 parallel) keeps full-catalog runs inside Vercel's 300s window. **Architecture note:** the plan originally called for a Deno Edge Function + pg_cron + sharded orchestration via ingest_jobs to leverage Supabase's 150s budget. We landed on Vercel Cron instead — Vercel Pro's 300s window plus segment concurrency fits the v1 daily run cleanly, and the Deno mirror would have duplicated hundreds of lines of pipeline code we'd otherwise maintain. If a future scale-up exceeds 300s, the path forward is sharding inside the Vercel handler, not a runtime swap. |
 | U9 | Claude Haiku summarization | **done** | `lib/anthropic/{client,summarize,summarize-episode,types}.ts` plus `prompts/segment-summary.ts` system prompt and 80 unit tests. Forced tool use (`submit_segment_analysis`) for structured output, zod validation, quote-fidelity check (with curly→straight normalization), single retry via tool_result block on schema/fidelity errors, returns null on transient errors or after exhausted retries. Per-call cost telemetry includes separated cache_read/cache_creation tokens at the discounted rate. SDK timeout pinned to 30s. |
 | **Phase D — Design & UI** | | | |
-| U10 | Design system foundation | **not started** | Theme tokens landed incidentally in U2 scaffold; actual U10 work (motion presets, team palette, contrast tests) not started. |
-| U11 | Digest card grid | **not started** | Blocked on U5, U10. |
-| U12 | MVP audio player | **not started** | Blocked on U10, U11. Audio URL behavior fully verified — permanent CDN paths with range support; no re-signing route, no embed wrapper fallback. |
-| U13 | Feedback bar | **not started** | Blocked on U5, U11, U12. |
+| U10 | Design system foundation | **done** | `app/globals.css` carries the full Podium token set (dark surface tones at L=0.14/0.18/0.22, team-adaptive `--team-accent`/`--team-accent-fg`/`--team-secondary` set via `:root[data-team="49ers"]`, motion timing tokens that collapse to 0ms under `prefers-reduced-motion`, `@property` registrations on the team tokens as a forward-compat stub). `components/player/motion-presets.ts` exports the shared `springs.gentle`/`springs.snappy` consumed by the scrubber. `__tests__/lib/palette/contrast.test.ts` parses OKLCH → linear sRGB → WCAG luminance and asserts AA on every team palette in `config/teams.ts` (onPrimary vs primary ≥4.5, primary vs background ≥3.0) — fails CI if a future team palette regresses. Commit `b40c26d`. |
+| U11 | Digest card grid | **done** | `app/(app)/{layout,page,actions}.tsx` (RSC + server action), `components/digest/{episode-card,loading-skeleton,loading-state,empty-fallback,refresh-banner}.tsx`, `lib/digest/load-cards.ts` (two-query AE3 anti-join: cards filtered by `verdict='not_relevant'` at card- and segment-level; user-scoped via stub-JWT client so RLS is genuinely exercised). First-run loading state polls `/api/ingest/status` every 2s with a 5-consecutive-error cap; auto-triggers `retryDailyIngestion` on `no_runs` per Q8; 5-minute timeout with "Continue waiting" / "Try again" recovery. `RefreshBanner` watches at 30s for fresher runs and prompts a manual reload. Commit `c71ae60`. |
+| U12 | MVP audio player | **done** | Native `HTMLAudioElement` + custom chrome. `lib/audio/use-audio-element.ts` (hook owns ref + lifecycle listeners, exposes stable play/pause/seek/seekBy/reload controls). `components/player/{audio-player,scrubber,transcript,playback-states}.tsx` — 56pt team-red play toggle, Motion-driven drag scrubber (animate=false during drag to avoid spring/drag feedback; null-guarded `getBoundingClientRect`; `prefers-reduced-motion` collapses to snap), segment-level transcript highlight + click-to-seek (AE6), keyboard nav (Space, arrows, Home/End), explicit loading/buffering/error/stalled surfaces with deep-link fallback to the podcast app. `lib/audio/format-time.ts` shares `formatClock` across player + transcript. Audio source is `episode.audio_url` (permanent CDN per U1 verification, no re-signing route needed). Commit `7505963`. |
+| U13 | Feedback bar | **done** | Three-button row at the foot of the expanded card sheet (Not relevant / Not substantive / Love this — 44pt icon-only with team-accent hover). `lib/feedback/optimistic.ts` runs the optimistic hide on "Not relevant" — POST in background, surface 5s Undo toast on success, roll back on failure. `app/api/feedback/route.ts` (POST + DELETE) uses the user-scoped Supabase client (anon-key + stub-JWT) — NOT service role — so RLS evaluates every write. v1 ships **card-level** feedback only; per-segment defers to v2 (schema's `feedback.segment_id` already supports it). `docs/solutions/2026-05-12-cost-monitoring.md` captures the spend SQL queries (no `/usage` UI in v1). Commit `970834e`. |
+| **Phase D follow-up — code review** | | | |
+| Review pass `ab144b3` | 13-reviewer audit + fixes | **done** | 13 personas in parallel against the U10–U13 diff (3,603 lines, 31 files). Surfaced 1 P0 + 4 P1 + 17 lower-severity findings. **All P0/P1 fixed in commit `ab144b3`:** (1) `/api/feedback` INSERT now sets `user_id: env.PODIUM_USER_ID` — the route was broken on the happy path because `feedback.user_id` is NOT NULL with no auto-fill trigger and mock tests didn't validate column constraints; (2) `retryDailyIngestion` mirrors the 60s recency check from `/api/ingest` so concurrent tabs can't fan out paid runs; (3) `DigestLoadingState` polling caps at 5 consecutive errors before surfacing `failed` (was infinite retry); (4) `DigestPage` uses `Promise.allSettled` so a `system_alerts` read failure no longer 500s the whole page. **9 safe_auto cleanups bundled:** typed `loadLatestRunStatus`, scrubber null-guards + drag-vs-animate fix (3-way reviewer corroboration), `formatClock` dedup, dead exports trimmed from `motion-presets`, `KIND_TO_STATUS` consolidated into a single source of truth, error-message stripped from 500 bodies, `.limit(500)` on feedback query, `setHidden`→`onHide` rename. Run artifact at `/tmp/compound-engineering/ce-code-review/20260512-194635-49c2b1bb/findings.md`. |
 
 ### What's blocked on the user
 
+All code work for v1 is complete (U1–U13 + code-review pass shipped). The remaining items are operational:
+
 1. **U4 DNS** — add Vercel DNS records at the `podiumsports.app` registrar. ~5 min. Only needed for production deploy.
-2. **Vercel env vars** — mirror `.env.local` values into Vercel project settings before deploy. Includes `CRON_SECRET` — Vercel Cron uses it to authenticate the scheduled `/api/cron/daily-digest` calls automatically.
-3. **First Vercel deploy** — Vercel Cron only fires against deployed code; the schedule in `vercel.json` is inert until the first push. The cron is set to `0 11 * * *` (6am ET / 11am UTC) so the first scheduled run lands the morning after deploy.
-4. **Particle dashboard credit-weight inspection** — read per-call credit cost for `standard` and `premium` tiers from the dashboard before the first non-dev-mode run. ~5 min. Not blocking U5–U9 code work.
+2. **Vercel env vars** — mirror `.env.local` values into Vercel project settings before deploy. Includes `CRON_SECRET` — Vercel Cron uses it to authenticate the scheduled `/api/cron/daily-digest` calls automatically. Set `INGEST_DEV_MODE=false` so production runs the full catalog.
+3. **First push to origin / first Vercel deploy** — five commits (`b40c26d`, `c71ae60`, `7505963`, `970834e`, `ab144b3`) sit on `main` locally, ahead of `origin/main`. Pushing triggers the first Vercel build; Vercel Cron is inert until the first deploy. The schedule (`0 11 * * *` UTC = 6am ET) means the first scheduled run lands the morning after deploy. A manual verification run (`curl -X POST .../api/ingest -H "Authorization: Bearer $CRON_SECRET"`) is recommended before letting the cron take over.
+4. **Particle dashboard credit-weight inspection** — read per-call credit cost for `standard` and `premium` tiers from the dashboard before the first non-dev-mode run. ~5 min.
 
 ### Residual review findings (U5 follow-up)
 
@@ -276,6 +288,41 @@ ce-code-review surfaced 25 findings on commit `1c83b24`; 7 applied in `31ce6ba`.
 - #18 — Plan-required EXPLAIN sanity test on `cards (user_id, surfaced_at desc)`
 - #22, #23 — `cascade` qualifier in 0005 + missing `IF NOT EXISTS` in 0001. Both edit already-applied migrations; skipped to avoid migration-history drift; documented as an accepted trade-off.
 - #24 — `ingest_jobs.podcast_ids uuid[]` has no FK integrity (Postgres limitation; alternative is a child table)
+
+### Residual review findings (U10–U13 follow-up)
+
+Code-review pass on commits `b40c26d`/`c71ae60`/`7505963`/`970834e` (13 reviewers, run artifact at `/tmp/compound-engineering/ce-code-review/20260512-194635-49c2b1bb/`). One P0 + three P1s + 9 safe_auto cleanups landed in commit `ab144b3`; the items below are P2/P3 follow-ups deferred to a future hardening pass. None block v1 launch.
+
+**Phase D — RESOLVED in `ab144b3`:**
+
+- ✅ **P0 — `/api/feedback` INSERT missing `user_id`.** Route was broken on the happy path (`feedback.user_id` is NOT NULL with no auto-fill since 0005). Mocked tests passed because the fake client didn't validate column constraints. Route now sets `user_id: env.PODIUM_USER_ID` at INSERT; RLS WITH CHECK still enforces `user_id = auth.uid()`. Regression test added.
+- ✅ **P1 — `retryDailyIngestion` had no rate limit / concurrency guard.** Server action skipped the 60s recency check from `/api/ingest`; concurrent tabs fanned out paid runs. Now mirrors the recency check and silently no-ops within the window.
+- ✅ **P1 — `DigestLoadingState` polling spun forever on persistent 500s.** Added a 5-consecutive-error cap before surfacing `failed`.
+- ✅ **P1 — `DigestPage` 500ed on `system_alerts` read failure.** Switched to `Promise.allSettled` with a sentinel; cards still render with degraded status surface.
+- ✅ **9 safe_auto cleanups bundled:** typed `loadLatestRunStatus`, scrubber null-guards + animate-during-drag (3-way reviewer corroboration), `formatClock` dedup into `lib/audio/format-time.ts`, dead exports trimmed from `motion-presets`, `KIND_TO_STATUS` consolidated to one source of truth in `lib/digest/load-cards.ts`, `err.message` stripped from 500 bodies on `/api/ingest` + `/api/ingest/status`, `.limit(500)` on feedback anti-join query, `setHidden`→`onHide` rename.
+
+**Defer to U14 hardening (P2, not blocking anything):**
+
+- **#R-1:** Undo's DELETE on `/api/feedback` is fire-and-forget; a network error leaves an orphaned `not_relevant` row while the UI claims Undo succeeded — the card re-disappears on the next page load. Await the DELETE and surface `toast.error("Couldn't undo — try again")` on failure.
+- **#R-2:** `FeedbackBar.handleRecord` has no in-flight guard; mobile double-tap on Love / Not substantive writes duplicate `feedback` rows (table has no UNIQUE on `(user_id, card_id, verdict)`). Add a `submitting` ref bail at the top.
+- **#R-3:** `"Continue waiting"` in `DigestLoadingState` permanently disables the 5-minute timeout for the session (no re-arm). Surface a Cancel affordance or re-arm on next status transition.
+- **#R-4:** `lib/audio/use-audio-element.ts` is a React hook in `lib/<domain>/` — AGENTS.md convention reserves `lib/` for non-React modules. Move to `components/player/use-audio-element.ts`.
+- **#R-5:** `loadDigestCards` silently substitutes `{ id: '', name: 'Unknown podcast' }` when the FK join misses. Add a `console.warn`; better, skip the card with an explicit log.
+- **#R-6:** 9× `as unknown as SupabaseClient` casts in `__tests__/lib/digest/load-cards.test.ts` escape structural verification — query-builder API drift will silently pass the checker. Define a narrow `MinimalSupabaseClient` interface accepted by the production loader; eliminate the double-casts.
+- **#R-7:** No live-DB integration test on `POST /api/feedback`. U5 RLS smoke suite covers cross-user policy at the DB layer but not the route's error-mapping path. Add a route-level test that does NOT mock the supabase client.
+
+**Defer to U14 hardening (P3 advisory, user's discretion):**
+
+- **#R-8:** `Transcript` active-segment uses `currentTime < end` where `end = Infinity` for null-endSeconds segments — multiple null-end segments all highlight as "active." Edge case (v1 data has well-formed end_seconds).
+- **#R-9:** `formatTotalTime` returns "1 min across N segments" when all segment endSeconds are null. Misrepresents content; same edge case as #R-8.
+- **#R-10:** `DigestLoadingState` 5-minute timeout uses wall-clock `Date.now()` — backgrounded-tab throttling makes it fire late, and a `completed` status polled in the background can fire unexpected `window.location.reload()` when the user returns. Use the Page Visibility API to pause polling while hidden.
+- **#R-11:** `DELETE /api/feedback` returns 204 even when RLS filters the row to nothing (undocumented idempotent behavior). Either document it on the route, or change to `.select().maybeSingle()` and return 404 on no row.
+- **#R-12:** `await res.json() as StatusResponse` in the polling loop has no runtime validation. Zod-parse the JSON; on parse failure render `unknown` state.
+- **#R-13:** `fetcher: typeof fetch = fetch` in `lib/feedback/optimistic.ts` declares a wider type than the implementation uses. Narrow to `(url: string, init?: RequestInit) => Promise<Response>`.
+- **#R-14:** TODO comment for `segment.audio_url ?? episode.audio_url` preference in `EpisodeCard` — per Particle API shape doc, segment URL is the preferred source. Latent today (v1 uses one player per card with episode-level audio).
+- **#R-15:** Sheet content (segment summaries, pull quotes, bullets) only renders after a click → invisible to agents over plain GET /. Add `GET /api/digest/cards` returning `DigestCard[]` for agent + integration test consumption.
+- **#R-16:** `retryDailyIngestion` server action is not callable by agents over HTTP. Document `POST /api/ingest` as the programmatic entry point in the route's JSDoc.
+- **#R-17:** `/api/feedback` contract is undocumented; agents must read tests to discover body shape. Add a JSDoc block describing body / verdicts / auth model.
 
 ---
 
