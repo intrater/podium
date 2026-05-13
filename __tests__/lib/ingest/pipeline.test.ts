@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AnthropicClient } from "@/lib/anthropic/client";
-import type { SegmentSummary } from "@/lib/anthropic/types";
+import type { EpisodeMoment } from "@/lib/anthropic/types";
 import { runIngestPipeline } from "@/lib/ingest/pipeline";
 import type { ParticleClient } from "@/lib/particle/client";
 import type {
@@ -215,13 +215,14 @@ function makeParticleStub(
       const data = (semantic && responses.search?.[semantic]) ?? [];
       return { data, has_more: false };
     },
-    getClipTranscript: async ({ episodeId, start, end }) => {
+    getClipTranscript: async ({ episodeId }) => {
       const text = responses.transcripts?.[episodeId]?.text ?? "";
       return {
         episode_id: episodeId,
-        lines: text
-          ? [{ number: 1, start_seconds: start ?? 0, end_seconds: end ?? 0, text }]
-          : [],
+        // Single synthetic line covering the full transcript. The pipeline
+        // uses transcript lines for moment-time mapping; tests don't care
+        // about line-level granularity beyond "non-empty".
+        lines: text ? [{ number: 1, start_seconds: 0, end_seconds: 3600, text }] : [],
       };
     },
     listEntities: async () => ({ data: [], has_more: false }),
@@ -237,70 +238,48 @@ function makeParticleStub(
   };
 }
 
+interface ExtractionFixture {
+  moments: EpisodeMoment[];
+  episode_rollup: string;
+}
+
 function makeAnthropicStub(
-  segmentSummaryById: Record<string, SegmentSummary | null>,
+  extractionByEpisode: Record<string, ExtractionFixture>,
 ): AnthropicClient {
-  // The pipeline calls summarizeSegment + summarizeEpisode through the
-  // anthropic client. Both go through createMessage with tool-use payloads.
-  // For this integration test we short-circuit at the createMessage level
-  // by returning canned tool_use blocks.
-  let segmentCallIdx = 0;
-  // Map of which segments to return in order — keyed by call sequence.
-  const segmentSummaries = Object.values(segmentSummaryById);
+  // U4: the pipeline now makes one Claude call per episode via the
+  // `extract_episode_moments` operation. Tests provide a canned extraction
+  // result per episode (by particle_episode_id).
+  let callIdx = 0;
+  const fixtures = Object.entries(extractionByEpisode);
 
   return {
     createMessage: async (operation) => {
-      if (operation === "summarize_segment") {
-        const summary = segmentSummaries[segmentCallIdx++] ?? null;
-        const input = summary
-          ? {
-              is_team_relevant: true,
-              summary: summary.summary,
-              pull_quotes: summary.pullQuotes,
-              bullets: summary.bullets,
-              surfacing_entities: summary.surfacingEntities,
-            }
-          : { is_team_relevant: false };
-        return {
-          id: `msg_${segmentCallIdx}`,
-          type: "message",
-          role: "assistant",
-          model: "claude-haiku-4-5",
-          stop_reason: "tool_use",
-          stop_sequence: null,
-          content: [
-            {
-              type: "tool_use",
-              id: `tu_${segmentCallIdx}`,
-              name: "submit_segment_analysis",
-              input,
-            },
-          ],
-          usage: { input_tokens: 100, output_tokens: 50 },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any;
+      if (operation !== "extract_episode_moments") {
+        throw new Error(`unexpected operation: ${operation}`);
       }
-      if (operation === "summarize_episode") {
-        return {
-          id: "msg_ep",
-          type: "message",
-          role: "assistant",
-          model: "claude-haiku-4-5",
-          stop_reason: "tool_use",
-          stop_sequence: null,
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_ep",
-              name: "submit_episode_summary",
-              input: { summary: "Episode rollup." },
+      const fixture = fixtures[callIdx]?.[1] ?? { moments: [], episode_rollup: "" };
+      callIdx += 1;
+      return {
+        id: `msg_${callIdx}`,
+        type: "message",
+        role: "assistant",
+        model: "claude-haiku-4-5",
+        stop_reason: "tool_use",
+        stop_sequence: null,
+        content: [
+          {
+            type: "tool_use",
+            id: `tu_${callIdx}`,
+            name: "submit_episode_extraction",
+            input: {
+              moments: fixture.moments,
+              episode_rollup: fixture.episode_rollup,
             },
-          ],
-          usage: { input_tokens: 50, output_tokens: 20 },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any;
-      }
-      throw new Error(`unexpected operation: ${operation}`);
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 50 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
     },
   };
 }
@@ -363,11 +342,19 @@ describe("runIngestPipeline — happy path", () => {
     });
 
     const anthropic = makeAnthropicStub({
-      seg_1: {
-        summary: "Purdy looks comfortable in the pocket per Mina Kimes.",
-        pullQuotes: ["Brock Purdy looks comfortable in the pocket."],
-        bullets: ["Comfortable pocket presence.", "Mina Kimes' read.", "First take of the segment."],
-        surfacingEntities: ["brock-purdy"],
+      ep_1: {
+        moments: [
+          {
+            particle_segment_id: "seg_1",
+            start_seconds: 60,
+            end_seconds: 120,
+            summary: "Purdy looks comfortable in the pocket per Mina Kimes.",
+            pull_quotes: ["Brock Purdy looks comfortable in the pocket."],
+            bullets: ["Comfortable pocket presence.", "Mina Kimes' read.", "First take of the segment."],
+            surfacing_entities: ["brock-purdy"],
+          },
+        ],
+        episode_rollup: "Purdy's pocket presence is the underrated story.",
       },
     });
 
@@ -425,7 +412,10 @@ describe("runIngestPipeline — off-topic segment", () => {
       transcripts: { ep_2: { text: "Some content." } },
     });
 
-    const anthropic = makeAnthropicStub({ seg_2: null }); // off-topic
+    // U4: off-topic = extractor returns empty moments array for the episode.
+    const anthropic = makeAnthropicStub({
+      ep_2: { moments: [], episode_rollup: "" },
+    });
 
     const out = await runIngestPipeline(
       { supabase: client, particle, anthropic, userId: USER_ID },

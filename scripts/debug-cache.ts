@@ -27,7 +27,7 @@ import type {
   MessageCreateParamsNonStreaming,
 } from "@anthropic-ai/sdk/resources/messages";
 
-import { buildSegmentSummarySystemPrompt } from "../lib/anthropic/prompts/segment-summary.ts";
+import { buildEpisodeExtractionSystemPrompt } from "../lib/anthropic/prompts/episode-extraction.ts";
 
 const MODEL = "claude-haiku-4-5";
 const TOOL_NAME = "submit_segment_analysis";
@@ -76,7 +76,7 @@ const team = {
   storylines: ["49ers offseason moves and free agency"],
 };
 
-const systemPrompt = buildSegmentSummarySystemPrompt(team);
+const systemPrompt = buildEpisodeExtractionSystemPrompt(team);
 
 function buildParams(userText: string): MessageCreateParamsNonStreaming {
   return {

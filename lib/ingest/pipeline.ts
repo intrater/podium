@@ -3,19 +3,20 @@
  *
  * Per shard, this function: reads the team's universe and the shard's
  * podcasts → fans out parallel Particle queries (entity-mention search,
- * semantic content search) → dedupes the segment results → fetches a
- * transcript per new segment → summarizes via Claude Haiku → persists
- * episodes/segments/cards in per-episode batches.
+ * semantic content search) → dedupes results → groups by episode → for
+ * each fresh episode, fetches the full transcript once and calls Claude
+ * once to extract all relevant moments → persists episodes/segments/cards.
+ *
+ * U4 (cost-optimization plan) replaced the per-segment Claude pass with
+ * a single per-episode `extractEpisodeMoments` call. The per-segment
+ * fan-out is gone; the new shape calls Claude ~6× less often AND fetches
+ * the transcript ~6× less often (one per episode vs one per segment).
  *
  * Idempotency is enforced at the schema level — `segments.particle_segment_id`
  * carries a UNIQUE constraint and `cards (user_id, team_id, episode_id)` is
- * unique — so the conflict-do-nothing semantics here mean re-running the
- * same window produces zero new rows the second time.
- *
- * The Deno mirror at `supabase/functions/daily-digest/_pipeline-deno.ts`
- * is logically identical — same input/output, same DB shape — and runs
- * inside the scheduled Edge Function. Both consume `IngestPipelineInput`
- * from `./types.ts`.
+ * unique. The extractor's contract requires every moment to carry a
+ * `particle_segment_id` from the anchors list, so re-runs upsert the same
+ * rows.
  */
 
 import "server-only";
@@ -26,11 +27,17 @@ import type {
   ParticleEpisode,
   ParticleMentionResult,
   ParticleEpisodeTranscript,
+  ParticleTranscriptLine,
 } from "@/lib/particle/types";
 import { paginateAll } from "@/lib/particle/client";
-import { summarizeEpisode } from "@/lib/anthropic/summarize-episode";
-import { summarizeSegment } from "@/lib/anthropic/summarize";
-import type { SegmentSummary, TeamContext } from "@/lib/anthropic/types";
+import { extractEpisodeMoments } from "@/lib/anthropic/extract-episode-moments";
+import type {
+  EpisodeExtractionOutput,
+  EpisodeMoment,
+  MentionAnchor,
+  TeamContext,
+  TranscriptLine,
+} from "@/lib/anthropic/types";
 
 import type {
   IngestPipelineInput,
@@ -40,7 +47,7 @@ import type {
 
 const PARTICLE_PAGE_LIMIT = 25;
 const PARTICLE_MAX_PAGES = 4;
-const SEGMENT_CONCURRENCY = 5;
+const EPISODE_CONCURRENCY = 5;
 
 interface NormalisedSegment {
   episodeId: string;
@@ -126,89 +133,108 @@ export async function runIngestPipeline(
 
   if (fresh.length === 0) return out;
 
-  // 5. For each fresh segment, fetch transcript + summarize. Bounded
-  //    concurrency so the wall time stays well inside the Vercel 300s
-  //    budget at full catalog (31 podcasts) — at concurrency=5 a typical
-  //    daily run of ~150 candidate segments completes in ~150s with
-  //    headroom. Higher concurrency would risk Anthropic rate-limit
-  //    bursts; lower would leave money on the table.
-  type SegmentResult = {
-    item: NormalisedSegment;
-    summary: SegmentSummary | null;
-    transcript: string | null;
-  };
-  const segmentResults = await mapWithConcurrency(fresh, SEGMENT_CONCURRENCY, async (item) => {
-    out.particleCallsAttempted += 1;
-    let transcript: ParticleEpisodeTranscript;
-    try {
-      transcript = await deps.particle.getClipTranscript({
-        episodeId: item.episodeId,
-        start: Math.floor(item.segment.start_seconds),
-        end: Math.ceil(item.segment.end_seconds),
-      });
-    } catch (err) {
-      console.error(
-        `pipeline: transcript fetch failed for segment ${item.segment.id}:`,
-        err instanceof Error ? err.message : String(err),
-      );
-      return { item, summary: null, transcript: null } satisfies SegmentResult;
-    }
-    const transcriptText = transcript.lines.map((line) => line.text).join(" ").trim();
-    if (!transcriptText) {
-      return { item, summary: null, transcript: null } satisfies SegmentResult;
-    }
-
-    out.anthropicCallsAttempted += 1;
-    const summary = await summarizeSegment(deps.anthropic, {
-      team: { name: team.name, sport: team.sport, entities: team.entities, storylines: team.storylines },
-      podcast: { name: item.episode.podcast.title, kind: "national" },
-      episode: { title: item.episode.title, published_at: item.episode.published_at },
-      segment: {
-        title: item.segment.title,
-        description: item.segment.description,
-        transcript: transcriptText,
-      },
-    });
-
-    return { item, summary, transcript: transcriptText } satisfies SegmentResult;
-  });
-
-  const byEpisode = new Map<string, {
-    episode: ParticleEpisode;
-    segments: Array<{ raw: NormalisedSegment; summary: SegmentSummary; transcript: string }>;
-  }>();
-  for (const result of segmentResults) {
-    if (result.summary === null) {
-      out.segmentsRejectedOffTopic += 1;
-      continue;
-    }
-    if (result.transcript === null) {
-      // Transcript fetch failed; segment is dropped silently. Already
-      // logged at the source.
-      continue;
-    }
-    const bucket = byEpisode.get(result.item.episodeId) ?? {
-      episode: result.item.episode,
-      segments: [],
-    };
-    bucket.segments.push({ raw: result.item, summary: result.summary, transcript: result.transcript });
-    byEpisode.set(result.item.episodeId, bucket);
+  // 5. Group fresh anchors by episode. The unit of Claude work and
+  //    transcript fetch is now an episode, not a segment.
+  const byEpisode = new Map<string, { episode: ParticleEpisode; anchors: NormalisedSegment[] }>();
+  for (const s of fresh) {
+    const bucket = byEpisode.get(s.episodeId) ?? { episode: s.episode, anchors: [] };
+    bucket.anchors.push(s);
+    byEpisode.set(s.episodeId, bucket);
   }
 
-  // 6. Persist per episode (one logical transaction worth of writes).
-  for (const [, group] of byEpisode) {
-    if (group.segments.length === 0) continue;
+  // 6. For each episode (bounded concurrency = EPISODE_CONCURRENCY):
+  //    fetch full transcript once + extract all relevant moments in one
+  //    Claude call. Concurrency=5 stays well inside the Vercel 300s
+  //    budget at a typical ~8 episodes/day.
+  type EpisodeResult = {
+    episodeId: string;
+    episode: ParticleEpisode;
+    anchors: NormalisedSegment[];
+    extraction: EpisodeExtractionOutput | null;
+    transcript: ParticleTranscriptLine[] | null;
+  };
 
-    // 6a. Episode row — fetch or upsert.
+  const episodeKeys = [...byEpisode.keys()];
+  const episodeResults = await mapWithConcurrency(
+    episodeKeys,
+    EPISODE_CONCURRENCY,
+    async (epId): Promise<EpisodeResult> => {
+      const bucket = byEpisode.get(epId)!;
+      out.particleCallsAttempted += 1;
+      let transcript: ParticleEpisodeTranscript;
+      try {
+        // No start/end → full episode transcript. Same endpoint, same
+        // $0.008/call as the per-segment fetches U4 replaced.
+        transcript = await deps.particle.getClipTranscript({ episodeId: epId });
+      } catch (err) {
+        console.error(
+          `pipeline: transcript fetch failed for episode ${epId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
+      }
+      if (transcript.lines.length === 0) {
+        return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
+      }
+
+      const transcriptLines: TranscriptLine[] = transcript.lines.map((l) => ({
+        start_seconds: l.start_seconds,
+        end_seconds: l.end_seconds,
+        speaker: l.speaker,
+        text: l.text,
+      }));
+      const anchors: MentionAnchor[] = bucket.anchors.map((a) => ({
+        particle_segment_id: a.segment.id,
+        start_seconds: a.segment.start_seconds,
+        end_seconds: a.segment.end_seconds,
+        title: a.segment.title,
+        match_source: a.matchSource,
+        surfacing_entities: a.surfacingEntities,
+      }));
+
+      out.anthropicCallsAttempted += 1;
+      const extraction = await extractEpisodeMoments(deps.anthropic, {
+        team: { name: team.name, sport: team.sport, entities: team.entities, storylines: team.storylines },
+        podcast: { name: bucket.episode.podcast.title, kind: "national" },
+        episode: { title: bucket.episode.title, published_at: bucket.episode.published_at },
+        transcript: transcriptLines,
+        anchors,
+      });
+
+      return {
+        episodeId: epId,
+        episode: bucket.episode,
+        anchors: bucket.anchors,
+        extraction,
+        transcript: transcript.lines,
+      };
+    },
+  );
+
+  // 7. Persist per episode.
+  for (const result of episodeResults) {
+    if (!result.extraction || !result.transcript) {
+      // Transcript fetch failed or extraction returned null after retries.
+      // Anchors are treated as off-topic so we don't lose visibility.
+      out.segmentsRejectedOffTopic += result.anchors.length;
+      continue;
+    }
+    if (result.extraction.moments.length === 0) {
+      // Extractor decided the episode has no relevant content.
+      out.segmentsRejectedOffTopic += result.anchors.length;
+      continue;
+    }
+
+    // 7a. Episode row.
     const { data: episodeRow, error: epErr } = await deps.supabase
       .from("episodes")
       .upsert(
         {
-          podcast_id: await resolveLocalPodcastId(deps.supabase, group.episode.podcast.id),
-          particle_episode_id: group.episode.id,
-          title: group.episode.title,
-          published_at: group.episode.published_at,
-          audio_url: group.episode.audio_url,
+          podcast_id: await resolveLocalPodcastId(deps.supabase, result.episode.podcast.id),
+          particle_episode_id: result.episode.id,
+          title: result.episode.title,
+          published_at: result.episode.published_at,
+          audio_url: result.episode.audio_url,
         },
         { onConflict: "particle_episode_id" },
       )
@@ -216,7 +242,7 @@ export async function runIngestPipeline(
       .single();
     if (epErr || !episodeRow) {
       console.error(
-        `pipeline: episode upsert failed for ${group.episode.id}:`,
+        `pipeline: episode upsert failed for ${result.episode.id}:`,
         epErr?.message ?? "no row",
       );
       continue;
@@ -224,49 +250,38 @@ export async function runIngestPipeline(
     out.episodesPersisted += 1;
     const episodeUuid = episodeRow.id as string;
 
-    // 6b. Segment rows — bulk upsert (one row per fresh segment).
-    const segmentRows = group.segments.map(({ raw, summary, transcript }) => ({
-      episode_id: episodeUuid,
-      particle_segment_id: raw.segment.id,
-      start_seconds: Math.floor(raw.segment.start_seconds),
-      end_seconds: Math.ceil(raw.segment.end_seconds),
-      audio_url: raw.segment.audio_url,
-      match_source: raw.matchSource,
-      raw_transcript: transcript,
-      summary: summary?.summary ?? null,
-      pull_quotes: summary?.pullQuotes ?? null,
-      bullets: summary?.bullets ?? null,
-      surfacing_entities: summary?.surfacingEntities ?? raw.surfacingEntities,
-    }));
+    // 7b. Segment rows — one per extracted moment, mapped via particle_segment_id.
+    const segmentRows = result.extraction.moments.map((moment) => {
+      const anchor = result.anchors.find((a) => a.segment.id === moment.particle_segment_id);
+      const rawTranscript = buildMomentTranscript(result.transcript!, moment);
+      return {
+        episode_id: episodeUuid,
+        particle_segment_id: moment.particle_segment_id,
+        start_seconds: moment.start_seconds,
+        end_seconds: moment.end_seconds,
+        audio_url: anchor?.segment.audio_url ?? null,
+        match_source: anchor?.matchSource ?? "entity",
+        raw_transcript: rawTranscript,
+        summary: moment.summary,
+        pull_quotes: [...moment.pull_quotes],
+        bullets: [...moment.bullets],
+        surfacing_entities: [...moment.surfacing_entities],
+      };
+    });
     const { error: segErr, count: segCount } = await deps.supabase
       .from("segments")
       .upsert(segmentRows, { onConflict: "particle_segment_id", count: "exact" });
     if (segErr) {
-      console.error(`pipeline: segments upsert failed for ${group.episode.id}:`, segErr.message);
+      console.error(`pipeline: segments upsert failed for ${result.episode.id}:`, segErr.message);
       continue;
     }
     out.segmentsPersisted += segCount ?? segmentRows.length;
 
-    // 6c. Episode-level rollup → card row.
-    const summaries = group.segments.filter((s) => s.summary !== null);
-    if (summaries.length === 0) continue;
-
-    out.anthropicCallsAttempted += 1;
-    const rollup = await summarizeEpisode(deps.anthropic, {
-      team: { name: team.name, sport: team.sport, entities: team.entities, storylines: team.storylines },
-      podcast: { name: group.episode.podcast.title },
-      episode: { title: group.episode.title },
-      segmentSummaries: summaries.map((s) => ({
-        title: s.raw.segment.title,
-        summary: s.summary!.summary,
-      })),
-    });
-
-    const totalRelevantSeconds = summaries.reduce(
-      (sum, s) => sum + Math.ceil(s.raw.segment.end_seconds - s.raw.segment.start_seconds),
+    // 7c. Card row — uses the extractor's episode_rollup directly.
+    const totalRelevantSeconds = result.extraction.moments.reduce(
+      (sum, m) => sum + Math.max(0, m.end_seconds - m.start_seconds),
       0,
     );
-
     const { error: cardErr } = await deps.supabase
       .from("cards")
       .upsert(
@@ -276,18 +291,42 @@ export async function runIngestPipeline(
           episode_id: episodeUuid,
           surfaced_at: new Date().toISOString(),
           total_relevant_seconds: totalRelevantSeconds,
-          episode_summary: rollup?.summary ?? null,
+          episode_summary: result.extraction.episode_rollup || null,
         },
         { onConflict: "user_id,team_id,episode_id" },
       );
     if (cardErr) {
-      console.error(`pipeline: card upsert failed for ${group.episode.id}:`, cardErr.message);
+      console.error(`pipeline: card upsert failed for ${result.episode.id}:`, cardErr.message);
       continue;
     }
     out.cardsPersisted += 1;
   }
 
   return out;
+}
+
+/**
+ * Slice the episode transcript to the lines that fall within a moment's
+ * time range. Stored as `segments.raw_transcript` so the existing inspect
+ * tools, audio-clip player, and downstream UI keep working unchanged.
+ */
+function buildMomentTranscript(
+  lines: readonly ParticleTranscriptLine[],
+  moment: EpisodeMoment,
+): string {
+  // Allow a small slop on each side to capture the lines that overlap
+  // the moment boundary — the model rounds start down and end up but
+  // transcript lines are speech-rate-variable.
+  const TOLERANCE = 2;
+  return lines
+    .filter(
+      (l) =>
+        l.end_seconds >= moment.start_seconds - TOLERANCE &&
+        l.start_seconds <= moment.end_seconds + TOLERANCE,
+    )
+    .map((l) => l.text)
+    .join(" ")
+    .trim();
 }
 
 interface LoadedTeam {

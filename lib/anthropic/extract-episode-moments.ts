@@ -32,7 +32,7 @@ import type {
 import { z } from "zod";
 
 import type { AnthropicClient } from "./client.ts";
-import { findToolUse, normalizeQuotes } from "./summarize.ts";
+import { findToolUse, normalizeQuotes } from "./_helpers.ts";
 import { buildEpisodeExtractionSystemPrompt } from "./prompts/episode-extraction.ts";
 import {
   ANTHROPIC_MODEL,
