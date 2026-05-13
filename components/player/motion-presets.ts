@@ -26,23 +26,3 @@ export const springs = {
   gentle: { type: "spring", stiffness: 120, damping: 14 },
   snappy: { type: "spring", stiffness: 220, damping: 22 },
 } as const satisfies Record<string, Transition>;
-
-/**
- * Cubic-bezier easings for tween-style transitions.
- *
- *   - `out` — Standard "decelerate into rest" curve. Pairs well with
- *             opacity/transform transitions where a spring would over-shoot.
- */
-export const easings = {
-  out: [0.32, 0.72, 0, 1],
-} as const;
-
-/**
- * Standardized durations (seconds, Motion's unit) matched to the CSS
- * `--motion-duration-*` tokens so JS- and CSS-driven motion line up.
- */
-export const durations = {
-  fast: 0.12,
-  base: 0.2,
-  slow: 0.36,
-} as const;

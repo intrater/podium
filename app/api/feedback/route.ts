@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { env } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -54,9 +55,14 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const supabase = await createSupabaseServerClient();
+  // feedback.user_id is NOT NULL with no auto-fill trigger (0005 dropped
+  // the residual auth.users handler). Set it explicitly here; v3 swaps
+  // env.PODIUM_USER_ID for the JWT sub from the real auth context. The
+  // RLS WITH CHECK policy verifies `user_id = auth.uid()` regardless.
   const { data, error } = await supabase
     .from("feedback")
     .insert({
+      user_id: env.PODIUM_USER_ID,
       card_id: parsed.data.cardId,
       verdict: parsed.data.verdict,
     })

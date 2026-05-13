@@ -9,6 +9,7 @@ import {
 } from "@/components/player/playback-states";
 import { Scrubber } from "@/components/player/scrubber";
 import { Transcript } from "@/components/player/transcript";
+import { formatClock } from "@/lib/audio/format-time";
 import { useAudioElement } from "@/lib/audio/use-audio-element";
 import type { DigestSegment } from "@/lib/digest/load-cards";
 import { cn } from "@/lib/utils";
@@ -159,11 +160,4 @@ export function AudioPlayer({
       />
     </section>
   );
-}
-
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(total / 60);
-  const sec = total % 60;
-  return `${minutes}:${String(sec).padStart(2, "0")}`;
 }

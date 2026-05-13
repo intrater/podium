@@ -100,18 +100,23 @@ export function Scrubber({
           dragConstraints={{ left: 0, right: trackWidth }}
           dragMomentum={false}
           dragElastic={0}
-          onDrag={(_, info) => setDragX(info.point.x - trackRef.current!.getBoundingClientRect().left)}
+          onDrag={(_, info) => {
+            const rect = trackRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            setDragX(info.point.x - rect.left);
+          }}
           onDragEnd={(_, info) => {
-            const x = info.point.x - trackRef.current!.getBoundingClientRect().left;
+            const rect = trackRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const x = info.point.x - rect.left;
             const ratio = Math.max(0, Math.min(1, x / trackWidth));
             setDragX(null);
             if (safeDuration > 0) onSeek(ratio * safeDuration);
           }}
-          animate={
-            dragX !== null
-              ? { x: dragX }
-              : { x: progress * trackWidth }
-          }
+          // During drag Motion owns the transform directly; passing
+          // `animate=false` prevents a feedback loop where the spring
+          // chases each setDragX update and overshoots after release.
+          animate={dragX !== null ? false : { x: progress * trackWidth }}
           transition={reduceMotion ? { duration: 0 } : springs.gentle}
           style={{ x: 0 }}
           className={cn(

@@ -6,6 +6,7 @@ import { RefreshBanner } from "@/components/digest/refresh-banner";
 import {
   loadDigestCards,
   loadLatestRunStatus,
+  type LatestRunStatus,
 } from "@/lib/digest/load-cards";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -13,6 +14,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 const TEAM_ID = "49ers";
+
+/** Sentinel returned when the system_alerts lookup throws — the page
+ *  still renders cards rather than 500ing on a status read failure. */
+const STATUS_FALLBACK: LatestRunStatus = {
+  status: "unknown",
+  createdAt: null,
+  notes: null,
+  costUsd: null,
+};
 
 /**
  * Mobile-first digest grid (the home screen).
@@ -31,15 +41,36 @@ const TEAM_ID = "49ers";
  *   - Zero cards + any other status → DigestLoadingState (handles
  *     running, failed, cost_aborted, and auto-triggers retry on
  *     no_runs per Q8).
+ *
+ * A status-query failure does NOT block the page — Promise.allSettled
+ * isolates the two reads so the cards still render even when
+ * system_alerts is temporarily unavailable. The status surface degrades
+ * to "unknown" / no refresh banner.
  */
 export default async function DigestPage() {
   const userClient = await createSupabaseServerClient();
   const adminClient = getSupabaseAdmin();
 
-  const [cards, latestRun] = await Promise.all([
+  const [cardsResult, latestRunResult] = await Promise.allSettled([
     loadDigestCards(userClient, TEAM_ID),
     loadLatestRunStatus(adminClient),
   ]);
+
+  if (cardsResult.status === "rejected") {
+    // Cards query failed — let Next.js's error boundary handle it.
+    // This path indicates RLS denial or a real DB outage, both of
+    // which are worth surfacing rather than silently hiding.
+    throw cardsResult.reason;
+  }
+  const cards = cardsResult.value;
+  const latestRun: LatestRunStatus =
+    latestRunResult.status === "fulfilled"
+      ? latestRunResult.value
+      : (console.error(
+          "digest-page: loadLatestRunStatus failed, falling back to 'unknown'",
+          latestRunResult.reason,
+        ),
+        STATUS_FALLBACK);
 
   if (cards.length === 0) {
     if (latestRun.status === "completed") {

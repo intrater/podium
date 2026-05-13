@@ -17,21 +17,13 @@
 
 import { NextResponse } from "next/server";
 
+import {
+  KIND_TO_STATUS,
+  type DigestRunStatus,
+} from "@/lib/digest/load-cards";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const maxDuration = 5;
-
-type DerivedStatus = "running" | "completed" | "cost_aborted" | "failed" | "unknown";
-
-const KIND_TO_STATUS: Record<string, DerivedStatus> = {
-  manual_run: "running",
-  scheduled_run: "running",
-  manual_run_complete: "completed",
-  scheduled_run_complete: "completed",
-  manual_run_failed: "failed",
-  scheduled_run_failed: "failed",
-  cost_abort: "cost_aborted",
-};
 
 const TRACKED_KINDS = Object.keys(KIND_TO_STATUS);
 
@@ -57,12 +49,13 @@ export async function GET(): Promise<Response> {
     .limit(1)
     .maybeSingle();
   if (error) {
-    return NextResponse.json({ error: "lookup_failed", message: error.message }, { status: 500 });
+    console.error("api/ingest/status: lookup_failed", error.message);
+    return NextResponse.json({ error: "lookup_failed" }, { status: 500 });
   }
   if (!data) {
     return NextResponse.json({ status: "no_runs", lastRun: null }, { status: 200 });
   }
-  const status: DerivedStatus =
+  const status: DigestRunStatus =
     typeof data.kind === "string" && data.kind in KIND_TO_STATUS
       ? KIND_TO_STATUS[data.kind]
       : "unknown";

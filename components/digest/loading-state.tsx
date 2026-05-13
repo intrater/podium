@@ -4,27 +4,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { DigestLoadingSkeleton } from "@/components/digest/loading-skeleton";
 import { Button } from "@/components/ui/button";
-
-/** Mirrors GET /api/ingest/status. */
-type IngestStatus =
-  | "no_runs"
-  | "running"
-  | "completed"
-  | "cost_aborted"
-  | "failed"
-  | "unknown";
+import type { DigestRunStatus } from "@/lib/digest/load-cards";
 
 interface StatusResponse {
-  status: IngestStatus;
+  status: DigestRunStatus;
   lastRun: {
-    kind: string;
-    startedAt: string | null;
-    finishedAt: string | null;
-    episodesCount: number | null;
-    segmentsCount: number | null;
-    costUsd: number | null;
     notes: string | null;
-    payload: unknown;
+    costUsd: number | null;
     createdAt: string | null;
   } | null;
 }
@@ -33,12 +19,15 @@ interface StatusResponse {
 const POLL_MS = 2_000;
 /** Hard timeout after which we show a "taking longer than expected" surface. */
 const TIMEOUT_MS = 5 * 60 * 1_000;
+/** Stop polling after this many consecutive fetch failures so a broken
+ *  /api/ingest/status doesn't spin indefinitely. */
+const MAX_CONSECUTIVE_ERRORS = 5;
 
 interface Props {
   /** Initial status as read by the page's RSC. Lets the surface render the
    *  correct branch (running skeleton vs. failed vs. cost-aborted) without
    *  waiting for the first poll to land. */
-  initialStatus: IngestStatus;
+  initialStatus: DigestRunStatus;
   /** Initial `notes`/`costUsd` payload that goes with `initialStatus`.
    *  Mirrors the system_alerts row that produced the status. */
   initialNotes?: string | null;
@@ -67,7 +56,7 @@ export function DigestLoadingState({
   initialCostUsd = null,
   onRetry,
 }: Props) {
-  const [status, setStatus] = useState<IngestStatus>(
+  const [status, setStatus] = useState<DigestRunStatus>(
     initialStatus === "no_runs" ? "running" : initialStatus,
   );
   const [notes, setNotes] = useState<string | null>(initialNotes);
@@ -93,12 +82,14 @@ export function DigestLoadingState({
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    let consecutiveErrors = 0;
     async function tick() {
       try {
         const res = await fetch("/api/ingest/status", { cache: "no-store" });
         if (!res.ok) throw new Error(`status ${res.status}`);
         const json = (await res.json()) as StatusResponse;
         if (cancelled) return;
+        consecutiveErrors = 0;
         setStatus(json.status);
         setNotes(json.lastRun?.notes ?? null);
         setCostUsd(json.lastRun?.costUsd ?? null);
@@ -117,8 +108,13 @@ export function DigestLoadingState({
           return;
         }
       } catch {
-        // Network blip — keep polling; the worst case is the user sees
-        // the skeleton a beat longer than they should.
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          // Status endpoint is persistently unhealthy — surface a
+          // recoverable failure rather than spinning forever.
+          if (!cancelled) setStatus("failed");
+          return;
+        }
       }
       if (!cancelled) {
         timer = setTimeout(tick, POLL_MS);

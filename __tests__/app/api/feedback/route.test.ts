@@ -17,13 +17,17 @@ const deleteResultRef: { value: { error: unknown } } = {
   value: { error: null },
 };
 
+const insertSpy = vi.fn();
 const supabaseMock = {
   from: vi.fn(() => ({
-    insert: () => ({
-      select: () => ({
-        single: async () => insertResultRef.value,
-      }),
-    }),
+    insert: (row: Record<string, unknown>) => {
+      insertSpy(row);
+      return {
+        select: () => ({
+          single: async () => insertResultRef.value,
+        }),
+      };
+    },
     delete: () => ({
       eq: async () => deleteResultRef.value,
     }),
@@ -49,6 +53,7 @@ function makeRequest(method: "POST" | "DELETE", body: unknown): Request {
 
 beforeEach(() => {
   supabaseMock.from.mockClear();
+  insertSpy.mockClear();
   insertResultRef.value = { data: { id: "feedback-uuid-1" }, error: null };
   deleteResultRef.value = { error: null };
 });
@@ -61,6 +66,23 @@ describe("POST /api/feedback", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: "feedback-uuid-1" });
     expect(supabaseMock.from).toHaveBeenCalledWith("feedback");
+  });
+
+  it("regression: INSERT includes user_id (feedback.user_id is NOT NULL with no auto-fill)", async () => {
+    await POST(
+      makeRequest("POST", { cardId: CARD_ID, verdict: "love" }),
+    );
+    // env.PODIUM_USER_ID is loaded from .env.local via setup.ts.
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: expect.any(String),
+        card_id: CARD_ID,
+        verdict: "love",
+      }),
+    );
+    const insertedUserId = insertSpy.mock.calls[0][0].user_id;
+    expect(typeof insertedUserId).toBe("string");
+    expect(insertedUserId.length).toBeGreaterThan(0);
   });
 
   it.each(["not_relevant", "not_substantive", "love"] as const)(

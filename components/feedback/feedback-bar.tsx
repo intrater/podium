@@ -51,7 +51,7 @@ export function FeedbackBar({ cardId, onHide }: Props) {
       <FeedbackButton
         label="Not relevant"
         icon={<X aria-hidden className="size-4" />}
-        onClick={() => void submitNotRelevant({ cardId, setHidden: onHide })}
+        onClick={() => void submitNotRelevant({ cardId, onHide })}
       />
       <FeedbackButton
         label="Not substantive"

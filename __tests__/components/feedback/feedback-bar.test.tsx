@@ -53,7 +53,7 @@ describe("FeedbackBar", () => {
     render(<FeedbackBar cardId={CARD_ID} onHide={onHide} />);
     fireEvent.click(screen.getByLabelText("Not relevant"));
     expect(submitNotRelevant).toHaveBeenCalledWith(
-      expect.objectContaining({ cardId: CARD_ID, setHidden: onHide }),
+      expect.objectContaining({ cardId: CARD_ID, onHide }),
     );
   });
 

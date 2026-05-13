@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { DigestRunStatus } from "@/lib/digest/load-cards";
 
 interface StatusPayload {
-  status: string;
+  status: DigestRunStatus;
   lastRun: { createdAt: string | null } | null;
 }
 

@@ -168,7 +168,10 @@ describe("POST /api/ingest — internal failure", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error).toBe("ingestion_failed");
-    expect(body.message).toContain("unexpected");
+    // The route does not leak err.message to the response — it logs
+    // server-side instead (verified via the console.error spy).
+    expect(body.message).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatClock } from "@/lib/audio/format-time";
 import { cn } from "@/lib/utils";
 import type { DigestSegment } from "@/lib/digest/load-cards";
 
@@ -101,11 +102,4 @@ export function Transcript({ segments, currentTime, onSeek }: Props) {
       })}
     </ol>
   );
-}
-
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(total / 60);
-  const sec = total % 60;
-  return `${minutes}:${String(sec).padStart(2, "0")}`;
 }

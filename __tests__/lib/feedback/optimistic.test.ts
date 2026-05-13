@@ -54,15 +54,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe("submitNotRelevant", () => {
   it("hides the card, POSTs feedback, and surfaces the Undo toast", async () => {
-    const setHidden = vi.fn();
+    const onHide = vi.fn();
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ id: FEEDBACK_ID }));
     toastFn.mockReturnValue("toast-1");
 
-    await submitNotRelevant({ cardId: CARD_ID, setHidden, fetcher });
+    await submitNotRelevant({ cardId: CARD_ID, onHide, fetcher });
 
-    expect(setHidden).toHaveBeenNthCalledWith(1, true);
+    expect(onHide).toHaveBeenNthCalledWith(1, true);
     expect(fetcher).toHaveBeenCalledWith(
       "/api/feedback",
       expect.objectContaining({ method: "POST" }),
@@ -77,7 +77,7 @@ describe("submitNotRelevant", () => {
 
     // Invoke the Undo action — should restore + DELETE.
     callOpts.action.onClick();
-    expect(setHidden).toHaveBeenLastCalledWith(false);
+    expect(onHide).toHaveBeenLastCalledWith(false);
     expect(fetcher).toHaveBeenCalledWith(
       "/api/feedback",
       expect.objectContaining({ method: "DELETE" }),
@@ -85,41 +85,27 @@ describe("submitNotRelevant", () => {
   });
 
   it("rolls back the optimistic hide and shows an error toast on POST failure", async () => {
-    const setHidden = vi.fn();
+    const onHide = vi.fn();
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 500 }));
 
-    await submitNotRelevant({ cardId: CARD_ID, setHidden, fetcher });
+    await submitNotRelevant({ cardId: CARD_ID, onHide, fetcher });
 
-    expect(setHidden).toHaveBeenNthCalledWith(1, true);
-    expect(setHidden).toHaveBeenLastCalledWith(false);
+    expect(onHide).toHaveBeenNthCalledWith(1, true);
+    expect(onHide).toHaveBeenLastCalledWith(false);
     expect(toastError).toHaveBeenCalledTimes(1);
     expect(toastFn).not.toHaveBeenCalled();
   });
 
-  it("does not error-toast if the user cancelled before the POST resolved", async () => {
-    const setHidden = vi.fn();
-    let resolveFetch: (r: Response) => void = () => {};
-    const fetcher = vi.fn<typeof fetch>().mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        }),
-    );
-    // Second call is the cleanup DELETE. Response can't carry a 204
-    // status with a body, so use 200 for the placeholder.
-    fetcher.mockResolvedValue(jsonResponse({}, 200));
-
-    const promise = submitNotRelevant({ cardId: CARD_ID, setHidden, fetcher });
-    // Simulate cancellation by sneaking through the Undo onClick before
-    // resolution — not directly accessible since the toast hasn't been
-    // surfaced yet. Resolve the POST as success; the helper should then
-    // recognize the (still-uncancelled) state and surface the toast.
-    resolveFetch!(jsonResponse({ id: FEEDBACK_ID }));
-    await promise;
-    expect(toastFn).toHaveBeenCalledTimes(1);
-  });
+  // Note on the cancellation branch: `cancelled` is only flipped by the
+  // toast's Undo action. The toast itself is created AFTER the POST
+  // resolves successfully. So the "POST returned but user already
+  // cancelled" path is unreachable from the public API today — the
+  // `if (cancelled)` guard inside the success block is defensive code
+  // for a future flow that fires the toast pre-POST (e.g. true optimistic
+  // surfacing). No automated test exercises that branch; verifying it
+  // would require a redesign that lets Undo cancel an in-flight POST.
 });
 
 describe("submitFeedback (non-hiding verdicts)", () => {

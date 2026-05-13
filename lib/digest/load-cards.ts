@@ -120,6 +120,9 @@ export async function loadDigestCards(
       .from("feedback")
       .select("card_id, segment_id, verdict")
       .eq("verdict", "not_relevant")
+      // Bounded to keep page-load cost flat as hide history grows. Higher
+      // than the card cap because feedback accumulates across many cards.
+      .limit(500)
       .returns<FeedbackRow[]>(),
   ]);
 
@@ -202,8 +205,8 @@ export function formatPublishedAt(iso: string | null): string {
   });
 }
 
-/** Derived status — mirrors `/api/ingest/status`. Kept in lockstep here so
- *  the page can decide its top-level surface without an HTTP round-trip. */
+/** Derived status — single source of truth shared between the
+ *  `/api/ingest/status` route handler and the digest page. */
 export type DigestRunStatus =
   | "no_runs"
   | "running"
@@ -212,7 +215,9 @@ export type DigestRunStatus =
   | "failed"
   | "unknown";
 
-const KIND_TO_STATUS: Record<string, DigestRunStatus> = {
+/** system_alerts.kind → DigestRunStatus. Exported so the route handler
+ *  can derive the same status the digest page uses, without divergence. */
+export const KIND_TO_STATUS: Record<string, DigestRunStatus> = {
   manual_run: "running",
   scheduled_run: "running",
   manual_run_complete: "completed",
@@ -227,6 +232,13 @@ export interface LatestRunStatus {
   createdAt: string | null;
   notes: string | null;
   costUsd: number | null;
+}
+
+interface SystemAlertRow {
+  kind: string;
+  notes: string | null;
+  cost_usd: number | string | null;
+  created_at: string | null;
 }
 
 /**
@@ -244,20 +256,19 @@ export async function loadLatestRunStatus(
     .in("kind", trackedKinds)
     .order("created_at", { ascending: false })
     .limit(1)
+    .returns<SystemAlertRow[]>()
     .maybeSingle();
   if (error) throw error;
   if (!data) {
     return { status: "no_runs", createdAt: null, notes: null, costUsd: null };
   }
-  const kind = data.kind as string;
-  const status = (kind in KIND_TO_STATUS ? KIND_TO_STATUS[kind] : "unknown") as DigestRunStatus;
+  const status: DigestRunStatus =
+    data.kind in KIND_TO_STATUS ? KIND_TO_STATUS[data.kind] : "unknown";
+  const costNum = data.cost_usd === null ? null : Number(data.cost_usd);
   return {
     status,
-    createdAt: (data.created_at as string | null) ?? null,
-    notes: (data.notes as string | null) ?? null,
-    costUsd:
-      data.cost_usd === null || data.cost_usd === undefined
-        ? null
-        : Number(data.cost_usd),
+    createdAt: data.created_at,
+    notes: data.notes,
+    costUsd: costNum !== null && Number.isFinite(costNum) ? costNum : null,
   };
 }

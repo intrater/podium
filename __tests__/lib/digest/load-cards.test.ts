@@ -313,7 +313,7 @@ describe("loadLatestRunStatus", () => {
           throw new Error(`unexpected table ${table}`);
         }
         const api: Record<string, unknown> = {};
-        for (const k of ["select", "in", "order", "limit"]) {
+        for (const k of ["select", "in", "order", "limit", "returns"]) {
           api[k] = () => api;
         }
         api.maybeSingle = async () => ({ data: row, error: null });

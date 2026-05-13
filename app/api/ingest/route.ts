@@ -73,7 +73,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("api/ingest: run failed", message);
-    return NextResponse.json({ error: "ingestion_failed", message }, { status: 500 });
+    return NextResponse.json({ error: "ingestion_failed" }, { status: 500 });
   }
 }
 

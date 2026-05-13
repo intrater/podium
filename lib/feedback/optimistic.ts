@@ -21,17 +21,17 @@ import { toast } from "sonner";
 export interface NotRelevantContext {
   cardId: string;
   /** Caller-supplied hide control. Called immediately + on rollback. */
-  setHidden: (hidden: boolean) => void;
+  onHide: (hidden: boolean) => void;
   /** Optional fetcher override for tests. Defaults to global `fetch`. */
   fetcher?: typeof fetch;
 }
 
 export async function submitNotRelevant({
   cardId,
-  setHidden,
+  onHide,
   fetcher = fetch,
 }: NotRelevantContext): Promise<void> {
-  setHidden(true);
+  onHide(true);
 
   let cancelled = false;
   let toastId: string | number | undefined;
@@ -61,7 +61,7 @@ export async function submitNotRelevant({
         label: "Undo",
         onClick: () => {
           cancelled = true;
-          setHidden(false);
+          onHide(false);
           void fetcher("/api/feedback", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
@@ -72,7 +72,7 @@ export async function submitNotRelevant({
     });
   } catch {
     if (cancelled) return;
-    setHidden(false);
+    onHide(false);
     if (toastId !== undefined) toast.dismiss(toastId);
     toast.error("Couldn't save feedback — try again.");
   }
