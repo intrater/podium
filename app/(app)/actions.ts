@@ -56,8 +56,8 @@ export async function retryDailyIngestion(): Promise<void> {
     }
   }
 
-  const particle = createParticleClient({ supabase });
-  const anthropic = createAnthropicClient({ supabase });
+  const particle = createParticleClient({ supabase, teamId: TEAM_ID });
+  const anthropic = createAnthropicClient({ supabase, teamId: TEAM_ID });
   await runDailyIngestion({
     supabase,
     particle,

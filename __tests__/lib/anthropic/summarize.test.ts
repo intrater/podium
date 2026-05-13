@@ -22,6 +22,7 @@ interface RecordedCall {
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;
+  team_id?: string | null;
   metadata: Record<string, unknown>;
 }
 
@@ -626,5 +627,58 @@ describe("summarizeEpisode", () => {
     };
     expect(callArgs.system[0].cache_control).toEqual({ type: "ephemeral" });
     expect(callArgs.tools[0].cache_control).toEqual({ type: "ephemeral" });
+  });
+});
+
+// ─── Per-team cost attribution (U1) ─────────────────────────────────
+
+describe("Anthropic client — per-team cost attribution", () => {
+  it("writes team_id on api_calls rows when factory is constructed with teamId", async () => {
+    const recorded: RecordedCall[] = [];
+    const { messages } = makeSdkStub(
+      toolUseMessage({
+        is_team_relevant: true,
+        summary: "stub",
+        pull_quotes: ["I think the most underrated thing about Brock Purdy this year is just how comfortable he looks in the pocket."],
+        bullets: ["a", "b", "c"],
+        surfacing_entities: ["brock-purdy"],
+      }),
+    );
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+      teamId: "49ers",
+    });
+    await summarizeSegment(client, baseInput);
+    expect(recorded[0].team_id).toBe("49ers");
+  });
+
+  it("writes null team_id when factory is constructed without teamId", async () => {
+    const recorded: RecordedCall[] = [];
+    const { messages } = makeSdkStub(
+      toolUseMessage({
+        is_team_relevant: true,
+        summary: "stub",
+        pull_quotes: ["I think the most underrated thing about Brock Purdy this year is just how comfortable he looks in the pocket."],
+        bullets: ["a", "b", "c"],
+        surfacing_entities: ["brock-purdy"],
+      }),
+    );
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+    });
+    await summarizeSegment(client, baseInput);
+    expect(recorded[0].team_id).toBeNull();
+  });
+
+  it("throws at factory construction when teamId is not a known team", () => {
+    expect(() =>
+      createAnthropicClient({
+        supabase: makeSupabaseStub([]) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+        sdk: { messages: { create: vi.fn() } } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+        teamId: "fake-team",
+      }),
+    ).toThrow(/unknown team_id/);
   });
 });

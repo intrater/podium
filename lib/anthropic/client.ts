@@ -22,7 +22,10 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { teams } from "@/config/teams";
 import { env } from "../env.ts";
+
+const KNOWN_TEAM_IDS = new Set(teams.map((t) => t.id));
 
 import {
   AnthropicTransientError,
@@ -35,6 +38,13 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface AnthropicClientOptions {
   supabase: SupabaseClient;
+  /**
+   * Team this client is scoped to. Forwarded to every `api_calls` insert
+   * for per-team cost attribution (U1, supports CE1). Optional — one-off
+   * scripts may omit it. Validated against config/teams.ts at factory
+   * construction.
+   */
+  teamId?: string;
   /** Test-only override for the Anthropic SDK. */
   sdk?: Pick<Anthropic, "messages">;
   /** Per-request timeout (ms). Defaults to 30s — sized to fit inside the Edge Function budget. */
@@ -53,6 +63,13 @@ export interface AnthropicClient {
 }
 
 export function createAnthropicClient(options: AnthropicClientOptions): AnthropicClient {
+  // Validate team_id early so a misspelled or stale identifier fails at
+  // factory construction instead of corrupting per-team cost rows.
+  if (options.teamId !== undefined && !KNOWN_TEAM_IDS.has(options.teamId)) {
+    throw new Error(
+      `createAnthropicClient: unknown team_id "${options.teamId}". Known: ${[...KNOWN_TEAM_IDS].join(", ")}`,
+    );
+  }
   const sdk: Pick<Anthropic, "messages"> =
     options.sdk ??
     new Anthropic({
@@ -91,6 +108,7 @@ export function createAnthropicClient(options: AnthropicClientOptions): Anthropi
         input_tokens: usage.inputTokens,
         output_tokens: usage.outputTokens,
         cost_usd: cost,
+        team_id: options.teamId ?? null,
         metadata: {
           cache_creation_input_tokens: usage.cacheCreationInputTokens ?? 0,
           cache_read_input_tokens: usage.cacheReadInputTokens ?? 0,
@@ -110,6 +128,7 @@ interface ApiCallRow {
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;
+  team_id?: string | null;
   metadata: Record<string, unknown>;
 }
 

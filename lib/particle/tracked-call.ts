@@ -61,6 +61,13 @@ export interface TrackedCallOptions {
   timeoutMs?: number;
   /** Service-role client for the api_calls write. */
   supabase: SupabaseClient;
+  /**
+   * Team this call is attributed to (for per-team cost analysis via U1).
+   * Optional — historical rows and one-off scripts may omit it. The
+   * factory in lib/particle/client.ts closes over the team_id passed at
+   * `createParticleClient({ teamId })` and forwards it on every call.
+   */
+  teamId?: string;
   /** Inject a fetch (used by tests). Defaults to global fetch. */
   fetcher?: Fetcher;
   /** Inject a sleeper (used by tests). Defaults to setTimeout-based sleep. */
@@ -287,6 +294,7 @@ async function logCall(
       endpoint: opts.endpoint,
       tier: opts.tier ?? "standard",
       cost_usd: costUsd,
+      team_id: opts.teamId ?? null,
       metadata,
     });
     if (error) {

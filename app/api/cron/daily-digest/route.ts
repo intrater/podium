@@ -41,8 +41,8 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const supabase = getSupabaseAdmin();
-  const particle = createParticleClient({ supabase });
-  const anthropic = createAnthropicClient({ supabase });
+  const particle = createParticleClient({ supabase, teamId: TEAM_ID });
+  const anthropic = createAnthropicClient({ supabase, teamId: TEAM_ID });
 
   try {
     const result = await runDailyIngestion({

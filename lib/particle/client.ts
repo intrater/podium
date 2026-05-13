@@ -21,7 +21,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { teams } from "@/config/teams";
 import { trackedCall, type Fetcher } from "./tracked-call.ts";
+
+const KNOWN_TEAM_IDS = new Set(teams.map((t) => t.id));
 import type {
   PaginatedResponse,
   ParticleClip,
@@ -39,6 +42,17 @@ const BASE_URL = "https://api.particle.pro";
 
 export interface ParticleClientOptions {
   supabase: SupabaseClient;
+  /**
+   * Team this client is scoped to. Forwarded to every `api_calls` insert
+   * so cost can be sliced per team (U1, supports CE1 in the
+   * cost-optimization plan). Optional — one-off scripts and tests may
+   * omit it; the column is nullable and inspect-costs treats null as
+   * "unknown team."
+   *
+   * Validated against config/teams.ts at factory construction to fail
+   * fast on misspelled/stale team IDs (prevents future v2 misattribution).
+   */
+  teamId?: string;
   /** Overrideable for tests — defaults to `globalThis.fetch`. */
   fetcher?: Fetcher;
   /** Overrideable for tests — defaults to `setTimeout`-based sleep. */
@@ -134,12 +148,20 @@ const ENDPOINT_TIER: Record<string, ParticleTier> = {
 };
 
 export function createParticleClient(config: ParticleClientOptions): ParticleClient {
+  // Validate team_id early so a misspelled or stale identifier fails at
+  // factory construction instead of corrupting per-team cost rows.
+  if (config.teamId !== undefined && !KNOWN_TEAM_IDS.has(config.teamId)) {
+    throw new Error(
+      `createParticleClient: unknown team_id "${config.teamId}". Known: ${[...KNOWN_TEAM_IDS].join(", ")}`,
+    );
+  }
   const call = <T>(endpoint: string, path: string): Promise<T> =>
     trackedCall<T>({
       endpoint,
       url: `${BASE_URL}${path}`,
       tier: ENDPOINT_TIER[endpoint] ?? "standard",
       supabase: config.supabase,
+      teamId: config.teamId,
       fetcher: config.fetcher,
       sleep: config.sleep,
       timeoutMs: config.timeoutMs,

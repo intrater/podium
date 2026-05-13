@@ -5,6 +5,8 @@
  *   npm run inspect-costs                   # all-time, by provider/endpoint
  *   npm run inspect-costs -- since=2026-05-10
  *   npm run inspect-costs -- detail         # per-call list
+ *   npm run inspect-costs -- group=team     # per-team subtotals (post-U1)
+ *   npm run inspect-costs -- team=49ers     # filter to one team only
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -26,11 +28,13 @@ for (const a of process.argv.slice(2)) {
 async function main() {
   let query = supabase
     .from("api_calls")
-    .select("ts, provider, endpoint, tier, model, input_tokens, output_tokens, cost_usd, metadata")
+    .select("ts, provider, endpoint, tier, model, input_tokens, output_tokens, cost_usd, team_id, metadata")
     .order("ts", { ascending: false });
 
   const since = argMap.get("since");
   if (since) query = query.gte("ts", since);
+  const teamFilter = argMap.get("team");
+  if (teamFilter) query = query.eq("team_id", teamFilter);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -59,6 +63,24 @@ async function main() {
     console.log(
       `  ${k.padEnd(12)} ${String(v.calls).padStart(4)} calls  $${v.usd.toFixed(4).padStart(8)}  ${((v.usd / total) * 100).toFixed(1)}%`,
     );
+  }
+
+  // By team (post-U1 attribution)
+  if (argMap.get("group") === "team" || teamFilter) {
+    const byTeam = new Map<string, { calls: number; usd: number }>();
+    rows.forEach((r) => {
+      const k = (r.team_id as string | null) ?? "(unattributed)";
+      const cur = byTeam.get(k) ?? { calls: 0, usd: 0 };
+      cur.calls += 1;
+      cur.usd += Number(r.cost_usd ?? 0);
+      byTeam.set(k, cur);
+    });
+    console.log("\nBy team:");
+    for (const [k, v] of byTeam) {
+      console.log(
+        `  ${k.padEnd(20)} ${String(v.calls).padStart(4)} calls  $${v.usd.toFixed(4).padStart(8)}  ${((v.usd / total) * 100).toFixed(1)}%`,
+      );
+    }
   }
 
   // By endpoint

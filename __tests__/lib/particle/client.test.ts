@@ -29,6 +29,7 @@ interface RecordedCall {
   endpoint: string;
   cost_usd: number;
   tier: string;
+  team_id?: string | null;
   metadata: Record<string, unknown>;
 }
 
@@ -563,5 +564,53 @@ describe("Particle contract snapshots — required fields present", () => {
     expect(episodeClipsSnapshot.data[0].id).toBeTypeOf("string");
     expect(episodeClipsSnapshot.data[0].audio_url).toBeTypeOf("string");
     expect(episodeClipsSnapshot.data[0].engagement_score).toBeTypeOf("number");
+  });
+});
+
+// ─── Per-team cost attribution (U1) ─────────────────────────────────
+
+describe("Particle client — per-team cost attribution", () => {
+  it("writes team_id on api_calls rows when factory is constructed with teamId", async () => {
+    const recorded: RecordedCall[] = [];
+    const stub = makeSupabaseStub(recorded);
+    const fetcher: Fetcher = vi.fn().mockResolvedValue(
+      jsonResponse(200, { data: [] }),
+    );
+    const particle = createParticleClient({
+      supabase: stub as unknown as Parameters<typeof createParticleClient>[0]["supabase"],
+      teamId: "49ers",
+      fetcher,
+      sleep: async () => {},
+      timeoutMs: 1_000,
+    });
+    await particle.searchEntityMentions({ entityId: "ent-test" });
+    expect(recorded[0].team_id).toBe("49ers");
+  });
+
+  it("writes null team_id when factory is constructed without teamId (legacy callers)", async () => {
+    const recorded: RecordedCall[] = [];
+    const stub = makeSupabaseStub(recorded);
+    const fetcher: Fetcher = vi.fn().mockResolvedValue(
+      jsonResponse(200, { data: [] }),
+    );
+    const particle = createParticleClient({
+      supabase: stub as unknown as Parameters<typeof createParticleClient>[0]["supabase"],
+      fetcher,
+      sleep: async () => {},
+      timeoutMs: 1_000,
+    });
+    await particle.searchEntityMentions({ entityId: "ent-test" });
+    expect(recorded[0].team_id).toBeNull();
+  });
+
+  it("throws at factory construction when teamId is not a known team", () => {
+    const recorded: RecordedCall[] = [];
+    const stub = makeSupabaseStub(recorded);
+    expect(() =>
+      createParticleClient({
+        supabase: stub as unknown as Parameters<typeof createParticleClient>[0]["supabase"],
+        teamId: "fake-team",
+      }),
+    ).toThrow(/unknown team_id/);
   });
 });

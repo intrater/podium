@@ -57,8 +57,8 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const particle = createParticleClient({ supabase });
-  const anthropic = createAnthropicClient({ supabase });
+  const particle = createParticleClient({ supabase, teamId: TEAM_ID });
+  const anthropic = createAnthropicClient({ supabase, teamId: TEAM_ID });
 
   try {
     const result: PostIngestResponse = await runDailyIngestion({
