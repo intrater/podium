@@ -5,6 +5,10 @@ plan-id: 2026-05-12-001
 type: refactor
 title: "Drive Podium ingest cost to ≤$0.20/team/day"
 origin: docs/strategy/unit-economics.md
+revised: 2026-05-13 (Phase A executed — U1/U3/U8 verified live; U2 shipped structurally but runtime cache verification failed — open bug)
+prior-revisions:
+  - 2026-05-13 — Phase A `/ce-work` autonomous overnight execution. Four commits on main pushed to origin. U2 (caching fix) shipped the structural marker placement on system + tools per Anthropic SDK types, and 5 new unit-test assertions pass; live verification run (24 Anthropic calls under `?force=1`) showed cache_creation_input_tokens=0 AND cache_read_input_tokens=0 on every row — Anthropic isn't honoring the marker. U1, U3, U8 verified end-to-end on live data. See "Next-session pickup" section below.
+  - 2026-05-12 — interactive walkthrough of the 6-reviewer doc-review pass. 8 substantive decisions baked in (path-1 persistence shape, CE1 → 30-day window, U5 split into U5+U8, U4 Stage 1.5 A/B, U7 simplified + DeepSeek excluded, Phase A reordered U2-first, U6 multi-team-ready retained).
 related-plans:
   - docs/plans/2026-05-09-001-feat-podium-v1-49ers-digest-plan.md (v1 build — landed)
 ---
@@ -134,15 +138,15 @@ The cost delta: N segments (~50/day) → M episodes (~8/day). Roughly 6× reduct
 
 ## Unit Status
 
-Last updated: 2026-05-12 (plan creation).
+Last updated: 2026-05-13 (Phase A executed overnight).
 
 | Unit | Name | Status | Notes |
 |------|------|--------|-------|
 | **Phase A — Measurement, quick wins & iteration scaffolding** | | | |
-| U1 | Per-team cost attribution on `api_calls` | **not started** | Foundation — without team_id on api_calls, success metric CE1 isn't measurable. New migration + threading through tracked-call wrappers + inspect-costs `group=team` flag. |
-| U2 | Anthropic prompt caching fix | **not started** | One-line fix per repo research: add `cache_control: { type: "ephemeral" }` to `TOOL_DEFINITION` in `summarize.ts:107` + `summarize-episode.ts:70`. Verify via `npm run inspect-costs` showing cache hit rate climbs from 0% toward 90%. ~1 hour. |
-| U3 | Verify list-call leak origin | **not started** | NOT a code fix per repo research — `listEntities`/`listPodcasts` are only called from `lib/seed/` and the live-DB seed test (`describe.skipIf(!haveEnv)`). Cross-reference api_calls timestamps against system_alerts run windows to confirm. Document conclusion; potentially gate the live-DB seed test behind an explicit opt-in flag. ~30 min. |
-| U8 | Force-reprocess flag (iteration scaffolding) | **not started** | Split from original U5 to ship BEFORE U4 — `INGEST_FORCE_REPROCESS` env var + `?force=1` query param on POST `/api/ingest`. Bypasses dedup filter; preserves 60s rate limit. Makes U4's 3–5 prompt iteration cycles cheap and repeatable. No schema migration — that lives in U5 (prompt-version tagging). |
+| U2 | Anthropic prompt caching fix | **shipped, runtime verification FAILED** (commit `d4d605e`) | Structural change correct per Anthropic SDK types: `cache_control: { type: "ephemeral" }` added to TOOL_DEFINITION in both `summarize.ts:107` + `summarize-episode.ts:70` (covers system + tools as the cacheable prefix). 5 new unit tests pass (assert markers present on both system and tools entries). **Live verification on 2026-05-13 02:31 UTC FAILED: 24 Anthropic calls under `?force=1`, every row reported `cache_creation_input_tokens=0` AND `cache_read_input_tokens=0`.** Anthropic isn't honoring the marker — not even on the first call. See "Next-session pickup" below for top suspects. |
+| U1 | Per-team cost attribution on `api_calls` | **done** (commit `2fea304`) | Migration `0012_api_calls_team_id.sql` applied to live DB. `teamId` threaded factory-level through `createParticleClient` + `createAnthropicClient` + their inner `logCall`/`logApiCall` row-construction functions. Factory-time validation against `config/teams.ts` fails fast on misspelled team IDs. All three call sites pass `teamId: "49ers"`. `inspect-costs` gains `--group=team` and `--team=<id>` flags. 6 new unit tests. Live verified: every new api_calls row written under `team_id="49ers"`. |
+| U3 | Verify list-call leak origin | **done** (commit `5802a0c`) | Built `scripts/inspect-list-calls.ts`. Diagnostic on live data: **127/127 list calls fall outside ingest run windows** — confirmed source is seed/test, not the daily worker. No code fix needed in the ingest path. Live-DB seed test now gated behind `PODIUM_RUN_LIVE_TESTS=true` env var (test suite went 40s → 2.2s). Solutions doc at `docs/solutions/2026-05-12-list-call-investigation.md`. |
+| U8 | Force-reprocess flag (iteration scaffolding) | **done** (commit `705858c`) | `INGEST_FORCE_REPROCESS` env var added to `lib/env.ts` (mirrors `INGEST_DEV_MODE` pattern). `?force=1` query param parsed on `POST /api/ingest`, OR'd with env var, threaded to `runDailyIngestion` → `IngestPipelineInput.forceReprocess` → `filterAlreadyPersisted` bypass. 3 new unit tests: force=true propagates; default false; rate limit still fires under force. Live verified: `curl POST /api/ingest?force=1` re-summarized every segment ($0.97 in dev mode); rate-limit returned 429 on rapid repeat. |
 | **Phase B — Structural cost reduction** | | | |
 | U4 | Per-episode Claude pipeline (with content sign-off gate) | **not started** | Biggest lever. Refactor pipeline.ts:137–171 from per-segment fan-out to per-episode fan-out. Investigate inline `SearchResult.windows[].lines[]` as transcript-fetch replacement. **Persistence design (committed):** extraction prompt preserves Particle segment boundaries — each moment carries its `particle_segment_id`, existing UNIQUE constraint + `onConflict` upsert path unchanged. CRITICAL: user-approval gate on new card shape via `inspect-card` + `qa:screenshots`. Multiple prompt iteration cycles expected within the unit. |
 | **Phase C — Iteration scaffolding** | | | |
@@ -151,10 +155,39 @@ Last updated: 2026-05-12 (plan creation).
 | **Phase D — Model evaluation** | | | |
 | U7 | Model swap evaluation | **not started** | Add `model` override to AnthropicClientOptions. Build evaluation harness running same 49ers episode through Claude Haiku 4.5, Gemini 2.5 Flash, Flash-Lite, GPT-4.1 Nano, DeepSeek V4 Flash, plus Anthropic Batch API. Score: cost, content quality (user judges), zod pass rate, latency, quote fidelity. **Eval-only API keys (Gemini, OpenAI, Grok, DeepSeek) live in `.env.local` only — explicitly NOT added to `lib/env.ts` or Vercel production env, to avoid bloating boot-time validation for keys production never uses.** **Hard call-count ceiling** (`MAX_EVAL_EPISODES = 5`, `MAX_EVAL_MODELS = 8`) in the harness, checked before the eval loop begins, to prevent runaway credit consumption if the loop is misconfigured. Output: data-backed decision + new solutions doc. |
 
+### Next-session pickup (start here in a fresh chat)
+
+Phase A shipped overnight (4 commits, all pushed to `origin/main`). The agent's recommendation when restarting work: **debug U2's cache miss first**, then proceed to U4.
+
+**The open bug — U2 caching not firing at runtime:**
+
+Live verification on 2026-05-13 02:31 UTC ran `POST /api/ingest?force=1` in dev mode. 24 Anthropic calls fired. Every row in `api_calls` for that window reports `cache_creation_input_tokens=0` AND `cache_read_input_tokens=0`. Anthropic isn't even creating the cache on the first call, let alone hitting it on subsequent ones.
+
+Already ruled out:
+- SDK version supports it. `@anthropic-ai/sdk@0.95.1`. Tool type explicitly has `cache_control?: CacheControlEphemeral | null` per `node_modules/@anthropic-ai/sdk/resources/messages/messages.d.ts:1134`.
+- Token count clears the minimum. ~3,300 input tokens per call; the cacheable prefix (`SHARED_RULES` ~1,891 + team context ~100 + TOOL_DEFINITION ~150) is ~2,150 tokens, well over the 1,024-token Anthropic minimum.
+- Model supports caching. `claude-haiku-4-5`.
+- The marker placement passes unit tests — `__tests__/lib/anthropic/summarize.test.ts` asserts `callArgs.system[0].cache_control` AND `callArgs.tools[0].cache_control` are both `{ type: "ephemeral" }`.
+
+Top suspects, ranked by likelihood:
+
+1. **The spread `{ ...TOOL_DEFINITION, cache_control: ... }` may not survive serialization to the actual HTTP body.** Verify by adding a one-time `console.log(JSON.stringify(baseParams, null, 2))` immediately before `sdk.messages.create(params)` in `lib/anthropic/client.ts:67` and grepping the output for `cache_control`. Should appear twice (system + tools). If only on system, the spread isn't reaching the wire.
+
+2. **Anthropic's auto-apply via top-level `cache_control`.** The SDK exposes `MessageCreateParams.cache_control` (`messages.d.ts:1983`) that "automatically applies a cache_control marker to the last cacheable block." Quick alternative: drop the per-block markers, set `cache_control: { type: "ephemeral" }` at the top level of `baseParams`, retest. Either confirms the per-block approach is broken or shifts the bug surface.
+
+3. **System prompt content varying per call.** `buildSegmentSummarySystemPrompt(input.team)` only takes `team` and v1 has one team — so the prompt SHOULD be identical across calls. But worth confirming by hashing the first system block content across all 24 calls in the verification run; any hash mismatch invalidates the cache.
+
+4. **`SHARED_RULES` accidentally contains a per-call template-string injection.** Less likely but cheap to check — `grep` `SHARED_RULES` in `lib/anthropic/prompts/segment-summary.ts` for any `${...}` interpolation. Should be a static string.
+
+Verification path once a fix is identified: run another `POST /api/ingest?force=1` in dev mode (~$0.30 expected post-fix because cache should hit). Inspect-costs Anthropic detail section should report cache hit rate ≥80% AND Anthropic cost per ingest drop ≥50% vs. the 2026-05-13 02:31 baseline.
+
+After U2 verifies clean, proceed to U4 — that's where the user sign-off gate fires.
+
 ### What's blocked on the user
 
-1. **Content-shape sign-off in U4** — multiple iteration cycles expected. User reviews `inspect-card` output and `qa:screenshots` after each prompt iteration; unit isn't done until user approves the shape.
-2. **Model-swap decision in U7** — final pick requires user judgment on content quality from the side-by-side comparison.
+1. **U2 cache fix verification.** Currently blocked on diagnosis. If 30-minute investigation doesn't find it, this becomes a real decision point (skip U2's expected ~60% Anthropic cost reduction, or block U4 pending deeper investigation).
+2. **Content-shape sign-off in U4** — multiple iteration cycles expected. User reviews `inspect-card` output and `qa:screenshots` after each prompt iteration; unit isn't done until user approves the shape.
+3. **Model-swap decision in U7** — final pick requires user judgment on content quality from the side-by-side comparison.
 
 Nothing blocked on user for U1–U3, U5, U6 — those are mechanical.
 
