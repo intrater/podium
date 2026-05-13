@@ -1,0 +1,410 @@
+Loaded 4 cards. Running per-episode extraction on each...
+
+
+
+══════════════════════════════════════════════════════════════════════════════════
+CARD [0]  ·  The Athletic Football Show
+Episode: Which NFL division has the best quarterbacks in 2026?
+══════════════════════════════════════════════════════════════════════════════════
+
+── CURRENT (per-segment pipeline, what's in DB today) ──────────────────────────
+Episode rollup:
+  The Athletic Football Show examined quarterback talent across NFL divisions in 2026, but the available segment focused on defensive strength instead—identifying the NFC West's dominant defensive line anchored by the 49ers' Nick Bosa as a st
+
+  Segment 1 · 43:54–44:11 · match=entity
+    summary : The NFC West is identified as the division with the best defensive line talent, anchored by the 49ers' Nick Bosa and complemented by Seattle and Los Angeles players.
+    quote   : "Give me Seattle, give me the Rams, give me Bosa"
+    bullet  : · Nick Bosa cited as a cornerstone of the NFC West's defensive line strength
+    bullet  : · Seattle and the Rams are also highlighted as contributors to the division's DL depth
+    bullet  : · Arizona is dismissed as negligible in the NFC West defensive line comparison
+    entities: nick-bosa
+
+── NEW (per-episode pipeline, v0 prompt) ────────────────────────────────────────
+Episode rollup:
+  The episode briefly highlighted Nick Bosa as an elite defensive line prospect when surveying the NFC West's talent, positioning him among the division's best pass rushers alongside standouts from Seattle and the Rams."
+
+  Moment 1 · 43:54–44:11
+    summary : The host identifies Nick Bosa as a top defensive line talent in the NFC West, grouping him alongside standout edge rushers from Seattle and the Rams.
+    quote   : "Give me Bosa-"
+    quote   : "Give me the Rams, give me Bosa- Oh, that's a good one"
+    bullet  : · Nick Bosa is ranked among the elite defensive line prospects when surveying NFC West talent
+    bullet  : · Bosa compares favorably to edge rushers from Seattle and the Los Angeles Rams
+    bullet  : · 49ers defensive depth extends beyond Bosa to include other notable line contributors
+    entities: nick-bosa, san-francisco-49ers
+
+  [usage] input=2590  output=295  cache_creation=0  cache_read=0  ≈$0.00407
+
+
+══════════════════════════════════════════════════════════════════════════════════
+CARD [1]  ·  Locked On 49ers
+Episode: 49ers Rookie Minicamp UPDATES and ESPN Projections for 2026
+══════════════════════════════════════════════════════════════════════════════════
+
+── CURRENT (per-segment pipeline, what's in DB today) ──────────────────────────
+Episode rollup:
+  The 49ers' 2025 pass rush underperformed significantly, but ESPN's 2026 projections suggest room for improvement with a healthy Nick Bosa expected to exceed 10-plus sacks and Azeez Ojulari topping his 4.2–4.3 projection. Rookie Ramello Heig
+
+  Segment 1 · 7:48–8:50 · match=entity
+    summary : The 49ers valued Kalen Black's route-running ability and high character in the draft, partly motivated by their prior experience with Brandon Aiyuk — the organization appears willi
+    quote   : "his ability to run routes i- is huge, and I think it was one of the things that the 49ers loved about him"
+    quote   : "some of the Kyle, some of the, uh, um, the Brandon Aiyuk stuff probably sticks with the 49ers and sticks in their craw a little bit"
+    quote   : "we are gonna make sure we get the goldest, helmetest guys and, and, and we're gonna do everything that is in our power to make sure that we get the character th"
+    bullet  : · The 49ers prioritized Kalen Black's route-running ability and high character in their draft evaluation.
+    bullet  : · John Lynch emphasized character as a key factor in the 49ers' draft approach.
+    bullet  : · The organization may be overweighting character and work ethic in draft decisions, partly as a reaction to prior Brandon Aiyuk-related issues.
+    bullet  : · The 49ers are willing to draft players a round earlier than market value to secure the right character fit.
+    entities: kalen-black, john-lynch, brandon-aiyuk
+
+  Segment 2 · 10:59–11:48 · match=entity
+    summary : Kalen Black won't displace Christian McCaffrey from third-down work; the backup running back role requires proving ability to carry the load on early downs, not stealing passing op
+    quote   : "you're not gonna take Christian McCaffrey off the field on third down, right? It would be insane to hand the ball off to Christian McCaffrey on first and second"
+    bullet  : · Kalen Black must prove he can run hard on first and second down to establish a role as backup to Christian McCaffrey.
+    bullet  : · Christian McCaffrey will remain the 49ers' third-down back, making it inefficient to remove him early in drives.
+    bullet  : · Black's value lies in complementing McCaffrey's workload on early downs, not supplementing him in pass-catching situations.
+    entities: kalen-black, christian-mccaffrey, jordan-mason
+
+  Segment 3 · 15:55–16:26 · match=entity
+    summary : Romello Height made a strong first impression at 49ers rookie minicamp with explosive line-of-scrimmage movement that lived up to his athletic billing. Defensive line coach Kris Ko
+    quote   : "Romello Height, I think, Croc, the big winner. Everybody blown away by his ability to, uh, explode off the line, looking every bit as athletic as advertised."
+    quote   : "Kris Kocurek, he's become famous for barking and, and yelling at his defensive linemen and trying to get them to get the, the bleep off the line."
+    bullet  : · Romello Height impressed all observers at rookie minicamp with explosive line-of-scrimmage ability matching his athletic profile.
+    bullet  : · Height's explosion off the snap aligns with defensive line coach Kris Kocurek's coaching philosophy emphasizing immediate gap penetration.
+    bullet  : · Kocurek's aggressive approach to coaching the defensive line appears well-suited to developing Height's natural abilities.
+    entities: romello-height
+
+  Segment 4 · 32:08–32:48 · match=entity
+    summary : Mike Clay projects limited snaps and production for 49ers defensive end Ramello Height, predicting more third-down usage than his 106-snap projection would suggest, but Clay expect
+    quote   : "Ramello Height I think is gonna see more third down usage than the 106 snaps that he's being projected here"
+    quote   : "0.9 sacks is the projection here on 106 snaps"
+    bullet  : · Ramello Height is buried as the fifth defensive end on the depth chart behind Bossa, Mykel Williams, Santo Owusu, and Kwon White.
+    bullet  : · Clay projects Height for 0.9 sacks on 106 snaps in 2026 but expects him to see more third-down snaps than the projection reflects.
+    bullet  : · The defensive end rotation includes four different skill sets competing for snaps.
+    entities: nick-bosa
+
+  Segment 5 · 34:15–35:51 · match=entity
+    summary : The 49ers' pass rush ranked poorly in 2025 and needs significant improvement. A healthy Nick Bosa should exceed his projected 10-plus sacks, Azeez Ojulari can surpass his 4.2–4.3 p
+    quote   : "A healthy Bosa's gonna be better than that."
+    quote   : "we saw how the defense went without the pass rush, and it's, it's a non-functional unit."
+    quote   : "I just looked at some stats from 2019, and you look at the amount of interceptions, a couple more than what they're projected at right here. There are about 13 "
+    bullet  : · Nick Bosa needs to stay healthy; his 10-plus sack projection is still an improvement over 2025 performance but undersells his ceiling.
+    bullet  : · Azeez Ojulari (Adeghuze) can exceed his 4.2–4.3 sack projection with a full season.
+    bullet  : · Rookie edge rusher Ramello Height must generate immediate pass-rush pressure from day one.
+    bullet  : · The 49ers should consider signing a free agent edge player before training camp, even without new injuries.
+    bullet  : · The 2019 defensive model—featuring multiple double-digit sack producers (Buckner, Armstead, Bosa, Dee Ford)—offers a template for restoring pass-rush functional
+    entities: nick-bosa, san-francisco-49ers
+
+── NEW (per-episode pipeline, v0 prompt) ────────────────────────────────────────
+Episode rollup:
+  The 49ers enter 2026 with a rebuilt edge-rusher rotation headlined by a healthy Nick Bosa, with Azeez Ojulari and prospect Ramello Height filling complementary roles. The front office should add a free-agent pass rusher before camp. At mini
+
+  Moment 1 · 7:48–8:50
+    summary : The 49ers heavily valued Kalen Black's route-running ability and high character in the draft. John Lynch and the front office prioritized character evaluation, potentially going a 
+    quote   : "his ability to run routes i- is huge, and I think it was one of the things that the 49ers loved about him"
+    quote   : "a high character player, a, a guy that's going to work and meet the standard"
+    quote   : "we are gonna make sure we get the goldest, helmetest guys and, and, and we're gonna do everything that is in our power to make sure that we get the character th"
+    bullet  : · Kalen Black's route-running ability was a primary draw for the 49ers scouting team.
+    bullet  : · The 49ers view Black as a high-character, high-effort player who meets team standards.
+    bullet  : · Brandon Aiyuk situation influenced 49ers to prioritize character assessment and potentially reach earlier in draft rounds.
+    entities: san-francisco-49ers, john-lynch
+
+  Moment 2 · 10:55–11:48
+    summary : Kalen Black won't displace Christian McCaffrey on third downs. The 49ers should use Black and Jordan James to prove they can execute hard runs on early downs, leaving McCaffrey for
+    quote   : "you're not gonna take Christian McCaffrey off the field on third down, right? It would be insane"
+    quote   : "he or James, Jordan James need to prove that they can run hard on first and second down"
+    bullet  : · Christian McCaffrey remains the exclusive third-down back for the 49ers offense.
+    bullet  : · Kalen Black and Jordan James must earn carries on first and second downs.
+    bullet  : · Role specialization keeps McCaffrey in pass-catching situations on obvious passing downs.
+    entities: san-francisco-49ers, christian-mccaffrey
+
+  Moment 3 · 15:55–16:26
+    summary : Romello Height impressed at minicamp with exceptional explosiveness off the snap. Defensive line coach Kris Kocurek emphasizes gap discipline and line-of-scrimmage quickness, an ex
+    quote   : "Romello Height, I think, Croc, the big winner. Everybody blown away by his ability to, uh, explode off the line"
+    quote   : "looking every bit as athletic as advertised"
+    bullet  : · Romello Height demonstrated elite explosiveness off the line at rookie minicamp.
+    bullet  : · Height lived up to athletic projections, impressing defensive staff and observers.
+    bullet  : · Defensive line coach Kris Kocurek prioritizes gap discipline and rapid line-of-scrimmage engagement.
+    entities: san-francisco-49ers
+
+  Moment 4 · 32:08–32:48
+    summary : Ramello Height is buried at fifth on the edge depth chart behind Nick Bosa, Mykel Williams, Santo Owusu, and Kwon White, but ESPN projects only 0.9 sacks on 106 snaps. The analyst 
+    quote   : "Ramello Height I think is gonna see more third down usage than the 106 snaps that he's being projected here"
+    quote   : "buried on the roster here as the, the fifth defensive end because you got Nick Bosa, Mykel Williams, Santo Owusu, and Kwon White"
+    bullet  : · Height ranks fifth on the edge depth chart behind Bosa, Mykel Williams, Santo Owusu, and Kwon White.
+    bullet  : · ESPN projects Height for 0.9 sacks on 106 snaps, a conservative estimate in analyst's view.
+    bullet  : · Height should earn elevated third-down role despite depth-chart positioning.
+    entities: san-francisco-49ers, nick-bosa
+
+  Moment 5 · 34:15–35:51
+    summary : Nick Bosa's 10-point sack projection is conservative; a healthy Bosa will exceed it. The 49ers' pass rush—anchored by Bosa, Azeez Ojulari, and emerging Ramello Height—needs to func
+    quote   : "A healthy Bosa's gonna be better than that."
+    quote   : "we saw how the defense went without the pass rush, and it's, it's a non-functional unit"
+    quote   : "the 49ers addressed it, uh, the following off-season in 2019 and how that defense took off"
+    bullet  : · Nick Bosa will exceed the 10-plus sack projection if healthy.
+    bullet  : · 49ers defense becomes non-functional without consistent pass-rush production.
+    bullet  : · Front office should add an edge free agent before training camp despite the Bosa-Ojulari-Height trio.
+    bullet  : · 2019 defense recorded 48 sacks and 13 interceptions as a benchmark; DeForest Buckner, Arik Armstead, rookie Nick Bosa, and Dee Ford anchored that unit.
+    bullet  : · Defensive improvement hinges on Bosa health, Ojulari availability, Height development, and rotational contributors.
+    entities: san-francisco-49ers, nick-bosa
+
+  [usage] input=3966  output=1636  cache_creation=0  cache_read=0  ≈$0.01215
+
+
+══════════════════════════════════════════════════════════════════════════════════
+CARD [2]  ·  The Krueg Show
+Episode: Why Romello Height, Enrique Cruz & Others SHOCKED Me At 49ers Rookie OTAs | Krueger & Chapman
+══════════════════════════════════════════════════════════════════════════════════
+
+── CURRENT (per-segment pipeline, what's in DB today) ──────────────────────────
+Episode rollup:
+  Romello Height emerged as a pass-rush presence the 49ers lacked in their defensive end room, while the podcast flagged inefficient running back deployment (Christian McCaffrey dominating snaps over Jordan Mason) and a need for interim tight
+
+  Segment 1 · 6:52–7:08 · match=entity
+    summary : The box three corners drill at 49ers rookie OTAs is better suited for smaller receivers like Ricky Pearsall than for taller prospect Stribling.
+    quote   : "this is a Ricky Pearsall drill. Right. This is, you know what I mean? Like, those smaller guys."
+    bullet  : · Stribling is not well-suited to the box three corners drill used at 49ers rookie OTAs.
+    bullet  : · The drill favors smaller receivers like Ricky Pearsall.
+    bullet  : · The box three corners concept is a foundational drill that middle school receivers learn.
+    entities: ricky-pearsall
+
+  Segment 2 · 15:26–15:53 · match=entity
+    summary : The 49ers defensive end room lacked an elite speed-to-get-off pass rusher despite having quality run-stuffing ends in Nick Bola, Mykel Williams, Keon White, and Sam O. Romello Heig
+    quote   : "you've got four defensive linemen that are quality defensive ends. Nick Bosa, obviously he could do pretty much everything you want."
+    quote   : "all of those are kind of your big buck style ends that are run stuffers. You don't have the elite speed get off guy."
+    bullet  : · The 49ers defensive end room had Nick Bola, Mykel Williams, Keon White, and Sam O but lacked an elite speed-to-get-off pass rusher.
+    bullet  : · The existing defensive ends are run-stuffing style linemen rather than elite edge rushers.
+    bullet  : · Romello Height appears to address the missing edge rush capability in the defensive end rotation.
+    entities: san-francisco-49ers, nick-bosa
+
+  Segment 3 · 25:48–26:30 · match=entity
+    summary : The 49ers keep backup and third-string QBs on the roster to evaluate depth and future planning, with GM John Lynch and Kyle Shanahan valuing low-cost optionality. Mac Jones was bro
+    quote   : "you don't use the seventh round pick, you don't, you know, put him on the NFI list, have him stick around for a year, all that, like, 'cause you gotta look at t"
+    quote   : "when we make these picks, is this somebody that can beat somebody out on our roster an- or can they help us in the future?"
+    quote   : "the third quarterback rule is the Shanahan rule"
+    bullet  : · The 49ers retain seventh-round and late-pick QBs on the roster to evaluate depth and long-term fit, not as a cost decision alone.
+    bullet  : · Mac Jones in 2024 represented the team testing a potential long-term QB2 option under contract.
+    bullet  : · Shanahan practices this QB evaluation approach more frequently than other NFL head coaches.
+    entities: kyle-shanahan, john-lynch, mac-jones
+
+  Segment 4 · 35:58–36:16 · match=entity
+    summary : The 49ers invest heavily in running back depth but fail to deploy it innovatively—Christian McCaffrey dominates snaps even when Jordan Mason is available, squandering the potential
+    quote   : "You've had guys. Jordan Mason was awesome. But you just would not allow him on the field if Christian McCaffrey was out there."
+    quote   : "you just would not allow him on the field if Christian McCaffrey was out there. And I'm not saying you bench Christian McCaffrey, but you find ways to be innova"
+    bullet  : · Jordan Mason delivered strong performance but received minimal snaps whenever Christian McCaffrey was active.
+    bullet  : · The 49ers' backfield deployment lacks innovation—no two-back sets or alternative personnel groupings despite roster depth.
+    bullet  : · Heavy RB investment hasn't panned out due to restrictive play-calling, not talent deficiency.
+    entities: christian-mccaffrey, jordan-mason
+
+  Segment 5 · 49:34–49:57 · match=entity
+    summary : The 49ers have a track record of identifying athletic linebackers late in the draft—Fred Warner (third round), Dre Greenlaw (day-three pick)—and even their discarded talent like Jo
+    quote   : "Fred Warner was a day-two pick, third round."
+    quote   : "Their ability to spot athletic linebackers is really good."
+    quote   : "the Jonas Griffith, the Marcelino McCrary-Balls"
+    bullet  : · Fred Warner was selected in the third round (day two).
+    bullet  : · Dre Greenlaw was a day-three pick.
+    bullet  : · The 49ers' scouting pipeline consistently identifies athletic linebackers across late draft rounds.
+    entities: fred-warner, dre-greenlaw
+
+  Segment 6 · 56:23–56:38 · match=entity
+    summary : The 49ers should hold George Kittle until November and pursue an interim tight end via free agency, with Dawson Knox, Cole Kmet, and TJ Hawkinson named as target options.
+    quote   : "I don't wanna see Kittle until November, and then I, I wanna see the Niners pick up either Dawson Knox, Cole Kmet, TJ Hawkinson."
+    bullet  : · Speaker proposes holding George Kittle out until November due to injury concerns.
+    bullet  : · 49ers should pursue a bridge tight end in free agency rather than rely solely on Kittle.
+    bullet  : · Dawson Knox, Cole Kmet, and TJ Hawkinson identified as available free agent tight end options.
+    entities: george-kittle, san-francisco-49ers
+
+  Segment 7 · 60:44–61:06 · match=entity
+    summary : The 49ers' defensive line strength and the Osa trade exemplify the core philosophy of Kyle Shanahan and John Lynch that's built into the current roster.
+    quote   : "the Osa trade, y- yeah, this is the strength of the team again, and it's what it should be"
+    quote   : "this is the core philosophy of Shanahan and Lynch, and the roster reflects that in its current state"
+    quote   : "D line is incredible incredible"
+    bullet  : · The defensive line is identified as the team's core strength and roster investment.
+    bullet  : · The Osa trade reflects the Shanahan-Lynch philosophy at the roster-building level.
+    bullet  : · Krueger sees the current roster as an accurate reflection of the team's foundational priorities.
+    entities: san-francisco-49ers, kyle-shanahan, john-lynch
+
+── NEW (per-episode pipeline, v0 prompt) ────────────────────────────────────────
+Episode rollup:
+  The 49ers' defensive line is built around elite talent (Nick Bosa, Mykel Williams, Keon White, Sam Osafo) but lacks an elite speed-rush specialist. Kyle Shanahan and John Lynch use low-cost roster moves like the Mac Jones experiment to eval
+
+  Moment 1 · 15:36–16:38
+    summary : The 49ers defensive end room has quality pass rushers in Nick Bosa, Mykel Williams, Keon White, and Sam Osafo, but they lack an elite speed-rusher archetype. The team's existing en
+    quote   : "You've got four defensive linemen that are quality defensive ends. Nick Bosa, obviously he could do pretty much everything you want."
+    quote   : "all of those are kind of your big buck style ends that are run stuffers. You don't have the elite speed get off guy."
+    bullet  : · Nick Bosa is a versatile, elite-caliber defensive end.
+    bullet  : · Mykel Williams, Keon White, and Sam Osafo provide quality depth but are run-stuffer archetypes.
+    bullet  : · The room lacks an elite speed-rush specialist.
+    entities: nick-bosa, san-francisco-49ers
+
+  Moment 2 · 25:48–26:30
+    summary : Kyle Shanahan and John Lynch use late-round picks and practice squad spots as low-cost experiments to evaluate quarterback depth, exemplified by Mac Jones' arrangement last year. T
+    quote   : "when we make these picks, is this somebody that can beat somebody out on our roster an- or can they help us in the future?"
+    quote   : "This is a low-cost metric to allow the Canadian rocket to stick around, and shoot, the third quarterback rule is the Shanahan rule."
+    bullet  : · Shanahan and Lynch evaluate every draft pick by whether it can beat out current roster players or provide future value.
+    bullet  : · Mac Jones was added last year as a low-cost, flexible quarterback depth option.
+    bullet  : · Shanahan uses the third quarterback slot more frequently than other coaches for strategic roster management.
+    entities: kyle-shanahan, john-lynch, san-francisco-49ers
+
+  Moment 3 · 35:58–36:36
+    summary : The 49ers invest heavily in running back depth but rarely deploy backup options when Christian McCaffrey is healthy. Jordan Mason proved capable but remained benched; the team coul
+    quote   : "You just would not allow him on the field if Christian McCaffrey was out there."
+    quote   : "you just find ways to be innovative in your personnel sets."
+    bullet  : · Christian McCaffrey receives nearly all running back snaps when healthy despite having talented backups.
+    bullet  : · Jordan Mason showed quality performance but remained benched due to McCaffrey's presence.
+    bullet  : · The team could maximize depth by using more creative personnel packages.
+    entities: christian-mccaffrey, san-francisco-49ers
+
+  Moment 4 · 49:34–50:17
+    summary : The 49ers have shown excellence in spotting athletic linebackers, including Dre Greenlaw (day-three pick who signed for $50 million), Fred Warner (day-two, third-round pick), and d
+    quote   : "Dre Greenlaw was a day-three pick."
+    quote   : "Fred Warner was a day-two pick, third round."
+    quote   : "Their ability to spot athletic linebackers is really good."
+    bullet  : · Dre Greenlaw, a day-three pick, signed for $50 million, reflecting his value development.
+    bullet  : · Fred Warner was a third-round day-two pick who became a cornerstone linebacker.
+    bullet  : · The 49ers consistently identify athletic linebacker talent across draft rounds.
+    entities: fred-warner, san-francisco-49ers
+
+  Moment 5 · 56:23–57:06
+    summary : George Kittle is being preserved and won't see action until November. The coaching staff wants to pursue external tight end help via free agents like Dawson Knox, Cole Kmet, or T.J
+    quote   : "I don't wanna see Kittle until November, and then I, I wanna see the Niners pick up either Dawson Knox, Cole Kmet, TJ Hawkinson."
+    bullet  : · George Kittle is being held out of offseason activities until November.
+    bullet  : · The team is targeting free agent tight ends (Dawson Knox, Cole Kmet, T.J. Hockenson) for depth.
+    bullet  : · The goal is to reduce workload on Kittle through complementary pass-catching options.
+    entities: george-kittle, san-francisco-49ers
+
+  Moment 6 · 60:44–61:06
+    summary : The 49ers' defensive line strength—including the Osa trade—reflects the core philosophy of Shanahan and Lynch. Building around the defensive line remains the team's foundational st
+    quote   : "this is the strength of the team again, and it's what it should be. Uh, like this is the core philosophy of Shanahan and Lynch, and the roster reflects that in "
+    bullet  : · The defensive line is the team's greatest strength.
+    bullet  : · The Osa trade reinforces Shanahan and Lynch's defensive-line-first philosophy.
+    bullet  : · The current roster construction directly reflects the coaching staff's core strategic vision.
+    entities: kyle-shanahan, john-lynch, san-francisco-49ers
+
+  [usage] input=3350  output=1668  cache_creation=0  cache_read=0  ≈$0.01169
+
+
+══════════════════════════════════════════════════════════════════════════════════
+CARD [3]  ·  The Krueg Show
+Episode: 49ers Rookie OTAs: Winners and Losers | Krueger & Coach
+══════════════════════════════════════════════════════════════════════════════════
+
+── CURRENT (per-segment pipeline, what's in DB today) ──────────────────────────
+Episode rollup:
+  The 49ers are forcing an offensive evolution around Brock Purdy's pocket presence and receiver development after defenses exposed weaknesses in their scheme, while facing a looming cap crisis in 2028 with only $8.5 million in space and majo
+
+  Segment 1 · 11:18–11:32 · match=entity
+    summary : Dejon Stribling, a versatile big-bodied receiver who can line up at all three WR positions, could compete for reps against Ricky Pearsall and get his opportunity during training ca
+    quote   : "Dejon Stribling could absolutely take Ricky Pearsall's job."
+    quote   : "He can play all three positions."
+    quote   : "Stribling is a big, physical wide receiver."
+    bullet  : · Stribling can line up at all three receiver positions, unlike Pearsall who operates as a Z.
+    bullet  : · Stribling's size and physicality position him as a potential challenger to Pearsall's role.
+    bullet  : · Stribling will get his chance to compete during training camp.
+    entities: ricky-pearsall
+
+  Segment 2 · 12:33–13:00 · match=entity
+    summary : Kyle Shanahan is committed to getting Christian Kirk on the field. Ricky Pearsall is facing competition from multiple defensive backs, including Dejean Stribling who is slotted as 
+    quote   : "Kyle is really big on Christian Kirk, uh, and I think that he's gonna find some way to put him on the field."
+    quote   : "Ricky Pearsall's got a lot of different people coming at him. Um, it's, it's Dejean Stribling who is right now slotted to bike back up Mike Evans."
+    bullet  : · Kyle Shanahan intends to feature Christian Kirk despite depth at the position.
+    bullet  : · Ricky Pearsall is facing coverage from multiple defensive backs in competition.
+    bullet  : · Dejean Stribling is slotted as Mike Evans' backup but Jordan Watkins is another overlooked cornerback option in matchup discussions.
+    entities: kyle-shanahan, christian-kirk, ricky-pearsall
+
+  Segment 3 · 16:24–18:15 · match=entity
+    summary : Kyle Kubiak signaled the 49ers offense must evolve because defenses have improved and older schemes no longer work. The focus is on Brock Purdy's development—specifically his pocke
+    quote   : "the old answers aren't working anymore, right? Um, the defensive coordinators have gotten better at attacking certain schemes"
+    quote   : "his pocket presence and his pocket discipline, understanding how to get the ball in guys' hands who are explosive receivers that can help us down the field"
+    quote   : "I know that you can talk about the blocking, but football, everything works in sync, right?"
+    bullet  : · Kubiak emphasized Brock Purdy's pocket presence and discipline as foundational to the offense's evolution.
+    bullet  : · The 49ers offense lacked separation last year, a systemic problem rooted in line play rather than individual receiver performance.
+    bullet  : · Kubiak said defensive coordinators have become more sophisticated at attacking the 49ers' schemes, forcing a competitive adaptation.
+    bullet  : · Offensive evolution hinges on Purdy's ability to maintain tempo and get the ball to explosive playmakers efficiently.
+    entities: brock-purdy, klay-kubiak
+
+  Segment 4 · 19:08–20:15 · match=entity
+    summary : The 49ers' defensive game plan could shift toward man coverage to exploit a weakness in the receiving corps. The strategy forces receivers to get open independently rather than rel
+    quote   : "we're definitely gonna take away quick reads, all right? And we're gonna go man. And the reason why we're gonna go man is because we understand that Brock Purdy"
+    quote   : "when you have to throw guys open, now it's on all of those merry men that they have at receiver, those Jauan Jennings who run 4.7s, it's time for them to go get"
+    bullet  : · Defensive opponents can neutralize Purdy's strength by forcing man coverage instead of zone looks.
+    bullet  : · Receivers must generate separation independently in man coverage, removing the value of Purdy's anticipatory throwing to areas.
+    bullet  : · The 49ers' receiver group struggled last season with separation and physicality, issues that schematic comfort in zone coverage concealed.
+    entities: brock-purdy, jauan-jennings
+
+  Segment 5 · 24:54–25:49 · match=entity
+    summary : The 49ers' coaching emphasis on Brock Purdy operating the pocket more efficiently isn't just about refinement—it's a direct response to an offensive line that underperformed last s
+    quote   : "He's telling you that you're holding onto the ball too long. You're not operating the pocket as well."
+    quote   : "we're asking him to do all of this with the offensive line that we have, that didn't necessarily perform well last season"
+    quote   : "Brock Purdy has not had a season where he hasn't been injured and had to sit out for a significant time."
+    bullet  : · Coaching staff is pushing Purdy to operate the pocket faster and more efficiently, partly to compensate for a weak offensive line.
+    bullet  : · The 49ers' offensive line underperformed last season, creating urgency to improve Purdy's pocket awareness and decision-making.
+    bullet  : · Purdy's injury history—sidelined every season he's played—makes keeping him upright a central focus of development.
+    entities: brock-purdy
+
+  Segment 6 · 31:56–32:20 · match=entity
+    summary : The 49ers struggle to develop drafted talent into long-term contributors—Brandon Aiyuk and Javon Kinlaw arrived as dominant prospects but failed to translate that potential into se
+    quote   : "the true mark of a good team is being able to get your rookies on the field and get them to a second contract"
+    quote   : "We haven't really been able to do that on, in, like, a holistic fashion with Brandon Aiyuk, right? Javon Kinlaw, that didn't really work out."
+    quote   : "And these are guys that look like cyborgs coming in here, that look like they were about to rule the world. But it couldn't translate."
+    bullet  : · Brandon Aiyuk has not reached a second contract despite arriving as a top prospect.
+    bullet  : · Javon Kinlaw failed to develop as expected after entering the organization with elite physical tools.
+    bullet  : · The 49ers have struggled to develop rookies into long-term roster pieces, indicating a systemic development issue beyond individual talent acquisition.
+    entities: brandon-aiyuk
+
+  Segment 7 · 43:04–43:31 · match=entity
+    summary : The 49ers are deep at corner but lack edge rusher depth behind Nick Bosa; adding Joey Bosa and a veteran tight end cut in June would round out the roster.
+    quote   : "they've got some interesting players at other spots, but that edge rush spot is a concern, 'cause you have Nick Bosa. You don't have a lot after that."
+    quote   : "Joey Bosa and one veteran tight end who gets cut, who- whatever veteran tight end gets cut in June, I think they're two, two pieces away."
+    bullet  : · The 49ers have adequate corner depth but lack an elite second edge rusher behind Nick Bosa.
+    bullet  : · Edge rush is identified as the primary roster gap heading into the offseason.
+    bullet  : · A veteran tight end acquired from June cuts plus Joey Bosa would constitute the two additions needed to complete the roster.
+    entities: nick-bosa
+
+  Segment 8 · 52:16–52:42 · match=entity
+    summary : The 49ers face a significant cap crunch in 2028 with only $8.5 million in cap space against $360 million in liabilities, including large contracts for Brock Purdy and Nick Bosa. Bo
+    quote   : "if you look at 2028, their total cap space is only 8.5 million, and look at the liabilities there, 360 million"
+    quote   : "it's Brock Purdy, it's Nick Bosa. Now, Nick Bosa's gonna renegotiate this, right?"
+    bullet  : · The 49ers will have only $8.5 million in cap space in 2028 against $360 million in liabilities.
+    bullet  : · Brock Purdy and Nick Bosa's contracts are among the major liabilities driving the cap crunch.
+    bullet  : · Nick Bosa's contract is expected to be renegotiated to address cap constraints.
+    entities: brock-purdy, nick-bosa
+
+  Segment 9 · 60:30–61:44 · match=entity
+    summary : The speaker praises the 49ers' latest receiver acquisition as a Kyle Shanahan-system fit with superior athleticism compared to Deebo Samuel and Brandon Aiyuk—combining elite speed 
+    quote   : "I really think that he's gonna help us. I think that he's everything that a Kyle Shanahan receiver embodies and more"
+    quote   : "He's n- he's a way better athlete than Deebo Samuel, and that was Deebo Samuel's calling card, right?"
+    quote   : "And then when you talk about just the raw speed and pop, just the home run ability to be respected, on top of having that type of speed and that type of athleti"
+    bullet  : · New receiver prospect surpasses Deebo Samuel in athleticism and is a better overall athlete.
+    bullet  : · Prospect has superior physical traits to Brandon Aiyuk, who lacked top-end speed and size despite strong technical fundamentals.
+    bullet  : · Combination of elite speed, athleticism, and physicality enables both route running and willing blocking responsibilities.
+    entities: deebo-samuel, brandon-aiyuk, kyle-shanahan
+
+  Segment 10 · 105:03–106:05 · match=entity
+    summary : The 49ers view Mac Jones as a valuable backup with a real future in the organization, not as a replacement plan. Despite speculation that he'll leave in free agency, the team is co
+    quote   : "They know that Purdy's the better player. Uh, they've committed to Purdy. If there was no Purdy, they would commit to Mac Jones. I really do believe that."
+    quote   : "Kyle really loves Mac Jones, and I think they know that he's got real value."
+    quote   : "Mac Jones looks great in Kyle's system."
+    bullet  : · The 49ers are committed to Brock Purdy as the starter but view Mac Jones as a legitimate long-term backup.
+    bullet  : · Mac Jones won five of eight starts last season, signaling the team won't trade or release him despite offseason speculation.
+    bullet  : · Kyle Shanahan has a strong rapport with Mac Jones and believes he fits well schematically.
+    entities: brock-purdy, mac-jones, kyle-shanahan
+
+  Segment 11 · 107:51–108:08 · match=entity
+    summary : The segment identifies Ricky Pearsall as a candidate to add weight during offseason conditioning, suggesting he would benefit from reaching closer to 200 pounds.
+    quote   : "I wouldn't mind seeing Ricky Pearsall put on some weight ... yeah, Ricky Pearsall if, if he was closer to two bills, that would be, that would help."
+    bullet  : · Ricky Pearsall is identified as needing to add weight during the offseason.
+    bullet  : · The speaker believes Pearsall at closer to 200 pounds would be beneficial.
+    bullet  : · Weight gain is framed as a potential improvement to Pearsall's physical profile.
+    entities: ricky-pearsall
+
+── NEW (per-episode pipeline, v0 prompt) ────────────────────────────────────────
+Episode rollup:
+  (model returned non-string or missing rollup)
+
+  (zero relevant moments — episode dropped per relevance gate)
+  [usage] input=4892  output=2048  cache_creation=0  cache_read=0  ≈$0.01513
+
+
+══════════════════════════════════════════════════════════════════════════════════
+A/B complete. Total spend this run: ≈$0.0430
+══════════════════════════════════════════════════════════════════════════════════
+
