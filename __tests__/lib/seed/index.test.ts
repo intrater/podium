@@ -20,7 +20,14 @@ import { niners } from "@/lib/universes/49ers";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PODIUM_USER_ID = process.env.PODIUM_USER_ID;
-const haveEnv = Boolean(SUPABASE_URL && SERVICE_ROLE_KEY && PODIUM_USER_ID);
+// Live-DB tests are opt-in. The seed runner + this test's afterAll hook
+// can hit the real Particle API ($0.20-0.30 per `npm test` run when
+// PARTICLE_API_KEY is also present). Gate behind an explicit env var so
+// casual `npm test` doesn't burn credit — set PODIUM_RUN_LIVE_TESTS=true
+// to opt in. See docs/solutions/2026-05-12-list-call-investigation.md
+// for the diagnostic that established this leak source.
+const LIVE_TESTS_ENABLED = process.env.PODIUM_RUN_LIVE_TESTS === "true";
+const haveEnv = LIVE_TESTS_ENABLED && Boolean(SUPABASE_URL && SERVICE_ROLE_KEY && PODIUM_USER_ID);
 
 function makeMockParticleResolver(): SeedParticleResolver {
   // Canned `id_<slug>` IDs for every entry in the live config. The mock

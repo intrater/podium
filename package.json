@@ -12,7 +12,8 @@
     "seed": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/seed-supabase.ts",
     "inspect-card": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-card.ts",
     "qa:screenshots": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/qa-screenshots.ts",
-    "inspect-costs": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-costs.ts"
+    "inspect-costs": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-costs.ts",
+    "inspect-list-calls": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-list-calls.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
