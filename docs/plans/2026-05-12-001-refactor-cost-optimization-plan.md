@@ -190,6 +190,8 @@ Nothing else blocked on user. U1, U2, U3, U5, U6, U8 are done.
 
 ### U1. Per-team cost attribution on `api_calls`
 
+> **Status (2026-05-13 Phase A overnight): done** (commit `2fea304`).
+
 **Goal:** Make CE1 measurable. Add `team_id` to `api_calls` so the success metric is grounded in real per-team data, not estimated from total spend.
 
 **Requirements:** CE1, CE3.
@@ -237,6 +239,8 @@ Nothing else blocked on user. U1, U2, U3, U5, U6, U8 are done.
 
 ### U2. Anthropic prompt caching fix
 
+> **Status (2026-05-13): structurally shipped + diagnosis complete; runtime-dormant until U4 runs live.** The marker placement is correct (verified via `scripts/debug-cache.ts`). The original 0% hit rate was caused by Haiku 4.5's 4,096-token cache minimum — our pre-U4 prefix sat below threshold and Anthropic silently skipped caching. U4's per-episode prompt is sized at 4,384 tokens (verified), so cache will fire the first time the new pipeline runs against fresh data. Full writeup: `docs/solutions/2026-05-13-anthropic-haiku-4-5-cache-minimum.md`.
+
 **Goal:** Drive Anthropic cache hit rate from 0% toward the designed ~90%. Required for CE2.
 
 **Requirements:** CE2.
@@ -279,6 +283,8 @@ Fix: add `cache_control: { type: "ephemeral" }` to the `TOOL_DEFINITION` block i
 
 ### U3. Verify list-call leak origin
 
+> **Status (2026-05-13 Phase A overnight): done** (commit `5802a0c`). Cross-reference confirmed list calls were seed/test-side, not the daily worker. Live-DB tests now gated behind `PODIUM_RUN_LIVE_TESTS=true`. Solutions doc at `docs/solutions/2026-05-12-list-call-investigation.md`.
+
 **Goal:** Confirm that `entities.list` + `podcasts.list` calls in `api_calls` come from seed-time activity (not the ingest runtime), and document the finding. Gate live-API tests behind an explicit opt-in flag if they're contributing to noise.
 
 **Requirements:** None directly — this is a data-hygiene verification.
@@ -314,6 +320,8 @@ Fix: add `cache_control: { type: "ephemeral" }` to the `TOOL_DEFINITION` block i
 ---
 
 ### U8. Force-reprocess flag (iteration scaffolding for U4)
+
+> **Status (2026-05-13 Phase A overnight): done** (commit `705858c`). `INGEST_FORCE_REPROCESS` env + `?force=1` query param threaded; rate limit preserved; 3 new tests; live-verified.
 
 **Goal:** Ship the `INGEST_FORCE_REPROCESS` env var + `?force=1` query param BEFORE U4 so its 3–5 prompt iteration cycles don't require manual DB cleanup. Split from the original combined U5 to land in Phase A. Version-mismatch reprocessing remains in U5.
 
@@ -356,6 +364,8 @@ Fix: add `cache_control: { type: "ephemeral" }` to the `TOOL_DEFINITION` block i
 ---
 
 ### U4. Per-episode Claude pipeline (with content-shape sign-off gate)
+
+> **Status (2026-05-13): code complete, awaiting live sign-off (blocked on Particle credits).** Stages 0 → 1 → 1.5 → 2 → 3 all executed. Module `lib/anthropic/extract-episode-moments.ts` shipped + tested + verified caching fires. Pipeline refactored to per-episode fan-out + legacy summarizers deleted. The text below preserves the original staged plan for historical reference; the current implementation reality is captured in the Unit Status table at the top of this doc and in `docs/solutions/2026-05-12-episode-extraction-prompt.md`.
 
 **Goal:** Replace the per-segment Claude pass with a per-episode pass. Cuts the dominant cost line (transcript fetches + segment Claude calls) by ~6×. Improves content quality by giving Claude full episode context. **Ships only when the user has approved the new card shape.**
 
@@ -451,6 +461,8 @@ This unit has three distinct sub-stages, each with verification:
 
 ### U5. Prompt-version tagging (auto-refresh on prompt change)
 
+> **Status (2026-05-13): done.** Migration `0014_segments_prompt_version.sql` applied to live DB; existing rows backfilled to `'legacy'`. Constant + pipeline wiring + 2 new tests in. See Unit Status table for the row summary.
+
 **Goal:** Future prompt changes auto-trigger re-processing on the next daily run, without manual force-flag intervention. Catches prompt drift at the daily cron without per-deploy ceremony.
 
 **Requirements:** CE5 (the auto-refresh half — U8 covers the iteration-loop half).
@@ -458,7 +470,7 @@ This unit has three distinct sub-stages, each with verification:
 **Dependencies:** U4 (the prompt shape stabilizes here; versioning catches future iterations), U8 (the force flag is the manual-override path; U5's auto-refresh is the automatic-on-change path).
 
 **Files:**
-- `supabase/migrations/0013_segments_prompt_version.sql` (new)
+- `supabase/migrations/0014_segments_prompt_version.sql` (new — number swapped from the plan's original 0013 because U6 shipped first and took 0013)
 - `lib/anthropic/types.ts` (modify — add `EPISODE_EXTRACTION_PROMPT_VERSION` constant)
 - `lib/ingest/pipeline.ts` (modify — write `prompt_version` on segment rows; pipeline filter respects `prompt_version != current_version`)
 - `__tests__/lib/ingest/pipeline.test.ts` (modify — assert filterAlreadyPersisted bypasses re-process when version changed)
@@ -492,6 +504,8 @@ This unit has three distinct sub-stages, each with verification:
 
 ### U6. Cadence policy (per-team in-season/off-season)
 
+> **Status (2026-05-13): done.** Migration `0013_teams_cadence.sql` applied to live DB. Cron route iterates teams from DB; `runDailyIngestion` short-circuits scheduled runs whose cadence hasn't elapsed; manual runs always bypass. 10 new tests (6 cadence + 4 cron route). See Unit Status table for the row summary.
+
 **Goal:** Reduce off-season ingestion frequency to cut ~50% of annual cost. Per-team-aware so different sports' seasons are respected.
 
 **Requirements:** CE6.
@@ -499,12 +513,12 @@ This unit has three distinct sub-stages, each with verification:
 **Dependencies:** none (independent of U4/U5).
 
 **Files:**
-- `supabase/migrations/0014_teams_cadence.sql` (new — add `cadence_days int default 1` to teams)
-- `config/teams.ts` (modify — add per-team season metadata: `inSeasonMonths: number[]`, `offSeasonCadenceDays: number`)
-- `lib/ingest/run.ts` (modify — `computeSinceTimestamp` or new `shouldRunForTeam` short-circuits the run when too soon)
-- `lib/ingest/types.ts` (modify if new types needed)
-- `app/api/cron/daily-digest/route.ts` (modify — iterates teams; calls runDailyIngestion only for teams whose cadence elapsed)
-- `__tests__/lib/ingest/run.test.ts` (modify — assert short-circuit behavior)
+- `supabase/migrations/0013_teams_cadence.sql` (new — number swapped from the plan's original 0014 because U6 shipped before U5; the column added: `cadence_days int default 1` on teams)
+- `config/teams.ts` (modify — add per-team season metadata: `inSeasonMonths: number[]`, `offSeasonCadenceDays: number`, plus `effectiveCadenceDays(team, now)` helper)
+- `lib/ingest/run.ts` (modify — cadence short-circuit branch at the top of `runDailyIngestion` for `runKind === "scheduled_run"` only)
+- `app/api/cron/daily-digest/route.ts` (modify — iterates teams from DB; calls runDailyIngestion per team)
+- `lib/digest/load-cards.ts` (modify — `KIND_TO_STATUS` map gains `skipped_cadence: "completed"` so the UI handles the new system_alerts kind)
+- `__tests__/lib/ingest/run.test.ts` + `__tests__/app/api/cron/daily-digest/route.test.ts` (modify — assert short-circuit behavior + per-team iteration)
 
 **Approach:**
 
@@ -534,6 +548,8 @@ This unit has three distinct sub-stages, each with verification:
 ---
 
 ### U7. Model swap evaluation
+
+> **Status (2026-05-13): not started — optional, deferred.** Annual-average projection after U4 + U6 sits at ~$0.225/team/day, within striking distance of CE1's $0.20 target. U7 is only worth running if the live post-U4 numbers don't hit target, OR for general intellectual due diligence on whether a cheaper model would do. Either way, blocked on Particle credits (eval harness needs real episodes).
 
 **Goal:** Data-driven decision on which LLM serves Podium's use case best. Either commit to a model swap with evidence, or commit to staying on Claude Haiku with evidence.
 
@@ -605,7 +621,7 @@ This unit is structured as an evaluation, not a production code change. Output i
 
 ### In scope (this plan)
 
-- All seven workstreams above.
+- All eight workstreams above (U1–U8).
 - Per-team cost attribution as the measurement foundation.
 - Content-shape sign-off as a hard gate on the biggest unit.
 
@@ -684,7 +700,7 @@ This work touches: RLS policies (cards become a shared content model with per-us
 - **Live API keys in `.env.local`:** Particle, Anthropic. Also (for U7 model evaluation): Gemini API key, OpenAI API key, DeepSeek API key, optional Grok / xAI API key. User obtains.
 - **Supabase project access:** v1 single project (`fszzncbglomjtsardyej`); all migrations apply directly. No staging.
 - **Existing tooling:** `npm run inspect-card`, `npm run inspect-costs`, `npm run qa:screenshots` — all wired from prior work, used throughout this plan's verification steps.
-- **Particle Starter credit:** ~$5 remaining of original $10. Each ingestion run during development consumes ~$1. Plan execution may exhaust the starter credit; budget for an early Particle paid-tier upgrade if so.
+- **Particle Starter credit:** **DEPLETED as of 2026-05-13** — the overnight Phase A `?force=1` runs + cumulative dev spend exhausted the original $10 credit. Paid-tier upgrade required to unblock the remaining live work (U4 sign-off live ingest + U7 model eval harness). Until restored, the daily cron will receive 402 from Particle.
 - **Anthropic API credit:** trivial spend per evaluation pass. No concern.
 - **U4 sign-off availability:** the user must be available to review prompt iterations and approve content shape. The unit can't progress without them.
 
@@ -692,19 +708,19 @@ This work touches: RLS policies (cards become a shared content model with per-us
 
 ## Success Metrics
 
-The plan succeeds when ALL of the following are true:
+The plan succeeds when ALL of the following are true. Each box has both a code state (the engineering reality) and a live state (what real-run data confirms once Particle credits are restored):
 
-- [ ] **CE1 met:** `npm run inspect-costs -- since=<30 days ago> group=team` reports per-team-per-day cost ≤ $0.20 for the 49ers team, over a 30-day rolling window of real ingestion runs. (Note: in-season floor is ~$0.30/day per origin cost model; the ≤$0.20 target depends on cadence-policy off-season reduction averaging into the 30-day window. CE1 cannot be evaluated against a window that's purely in-season — wait for at least one cadence cycle.)
-- [ ] **CE2 met:** Anthropic cache hit rate ≥ 80% on `npm run inspect-costs` Anthropic detail.
-- [ ] **CE3 met:** `api_calls` table has `team_id` populated for all rows written by the ingest pipeline after U1 lands. `inspect-costs --group=team` is functional.
-- [ ] **CE4 met:** Per-segment Claude calls are eliminated from the runtime pipeline (verified via `api_calls` having zero `anthropic/summarize_segment` rows in a post-U4 ingestion window; only `anthropic/extract_episode_moments` remains).
-- [ ] **CE5 met:** Bumping `EPISODE_EXTRACTION_PROMPT_VERSION` triggers re-processing on the next run, verified end-to-end.
-- [ ] **CE6 met:** Off-season days show `skipped_cadence` system_alerts rows; in-season days run normally. v1 single-team config produces expected behavior.
-- [ ] **CE7 met:** `docs/solutions/2026-05-12-model-evaluation.md` exists with a populated matrix and a clear recommendation backed by data.
-- [ ] **CE8 met:** User has explicitly approved the new card content shape after U4 sign-off iteration.
+- [ ] **CE1 met:** `npm run inspect-costs -- since=<30 days ago> group=team` reports per-team-per-day cost ≤ $0.20 for the 49ers team, over a 30-day rolling window of real ingestion runs. **Code state: projected ~$0.225/day annual average from U4 + U6 design** — within striking distance, U7 available as a lever if needed. Live state: pending — wait for at least one cadence cycle (any 30-day window spanning in-season + off-season) of post-U4 ingestion data.
+- [ ] **CE2 met:** Anthropic cache hit rate ≥ 80% on `npm run inspect-costs` Anthropic detail. **Code state: prompt verified at 4,384 tokens (above Haiku 4.5's 4,096 minimum); cache fires in isolation** (verified 2026-05-13). Live state: pending first live U4 ingest.
+- [x] **CE3 met:** `api_calls` table has `team_id` populated for all rows written by the ingest pipeline after U1 lands. `inspect-costs --group=team` is functional. **Done 2026-05-13 (Phase A overnight, commit `2fea304`).** Verified live.
+- [ ] **CE4 met:** Per-segment Claude calls are eliminated from the runtime pipeline. **Code state: per-segment `summarizeSegment` deleted from the codebase entirely; `extractEpisodeMoments` is now the only Anthropic pipeline call.** Live state: pending first live U4 ingest (will show as zero `anthropic/summarize_segment` rows, only `anthropic/extract_episode_moments`).
+- [ ] **CE5 met:** Bumping `EPISODE_EXTRACTION_PROMPT_VERSION` triggers re-processing on the next run, verified end-to-end. **Code state: pipeline filter + DB column + write logic all wired and tested.** Live state: pending — verifiable by bumping to "v2" and watching legacy/v1 segments get re-extracted.
+- [ ] **CE6 met:** Off-season days show `skipped_cadence` system_alerts rows; in-season days run normally. **Code state: cadence gate live in `runDailyIngestion`, cron iterates teams, `KIND_TO_STATUS` updated.** Live state: pending — observable once the first scheduled run fires under the new code path (cron stops 402'ing).
+- [ ] **CE7 met:** `docs/solutions/2026-05-12-model-evaluation.md` exists with a populated matrix and a clear recommendation backed by data. **Code state: not started — optional, deferred** unless live CE1 numbers come in above $0.20.
+- [ ] **CE8 met:** User has explicitly approved the new card content shape after U4 sign-off iteration. **Code state: Stage 1.5 quality A/B approved on cards [1] and [2].** Live state: pending — Stage 3 sign-off needs fresh cards generated under the production module.
 
 Plus regression-protection:
-- [ ] All 178 pre-plan tests still pass after every unit ships.
+- [ ] Test suite stays green through every unit. (Note: pre-plan was 178 tests; current count is 174 after the U4 cleanup pass deleted `summarize.test.ts` (20 tests for the retired per-segment summarizer) and added new coverage for the per-episode path, prompt versioning, and cadence. The net is a real reshape of coverage, not a regression — the deleted tests covered code that no longer exists.)
 - [ ] RLS smoke tests pass — no cross-user leakage introduced by schema additions.
 - [ ] `npm run lint` and `npm run build` clean throughout.
 
@@ -720,13 +736,13 @@ Plus regression-protection:
 
 - **Don't skip the sign-off gate.** The plan's stated goal is "cost AND content quality." Approving a cost win on content the user hates fails the plan. The gate exists for a reason.
 
-- **Migrations are additive only.** Per project convention, never modify applied migrations. Three new migrations land in this plan: `0012_api_calls_team_id.sql`, `0013_segments_prompt_version.sql`, `0014_teams_cadence.sql`.
+- **Migrations are additive only.** Per project convention, never modify applied migrations. Three new migrations landed in this plan: `0012_api_calls_team_id.sql` (U1), `0013_teams_cadence.sql` (U6), `0014_segments_prompt_version.sql` (U5). The U5/U6 number ordering swap vs. the original plan reflects shipping order (U6 went out first) — file content matches each unit's stated change.
 
 - **Schema additions preserve RLS posture.** All three new columns are on tables with existing RLS; ensure the policies don't need amendment. (Likely they don't — `team_id`, `prompt_version`, `cadence_days` are not user-scoped fields.)
 
 - **Pre-launch action carried forward from v1:** Particle dashboard credit-weight inspection. Useful before U7's evaluation harness so we have authoritative per-call pricing for Particle in the matrix.
 
-- **Observability:** `system_alerts` gains a new kind (`skipped_cadence`) in U6. Update `KIND_TO_STATUS` map in `lib/digest/load-cards.ts` to handle it. Update the residual reviewers' findings if any reference the map.
+- **Observability:** `system_alerts` gained a new kind (`skipped_cadence`) in U6. `KIND_TO_STATUS` map in `lib/digest/load-cards.ts` maps it to `"completed"` so the UI treats off-season skip days as clean run cycles. Notes field carries the "X hours elapsed, Y days required" reason for anyone digging into operational state.
 
 ---
 

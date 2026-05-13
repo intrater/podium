@@ -225,6 +225,11 @@ export const KIND_TO_STATUS: Record<string, DigestRunStatus> = {
   manual_run_failed: "failed",
   scheduled_run_failed: "failed",
   cost_abort: "cost_aborted",
+  // U6: cadence gate skipped a scheduled run. Treated as "completed"
+  // for UX purposes — the run cycle finished cleanly, just without
+  // doing work. The notes field carries the "X hours since last
+  // completion, Y days required" reason for anyone digging in.
+  skipped_cadence: "completed",
 };
 
 export interface LatestRunStatus {
