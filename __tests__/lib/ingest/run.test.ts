@@ -36,6 +36,8 @@ interface StoreShape {
   cards: Array<{ user_id: string; team_id: string; surfaced_at: string }>;
   apiCallsThisMonth: Array<{ cost_usd: number; provider: string; ts: string }>;
   alerts: RecordedAlert[];
+  /** Existing system_alerts rows the test wants the cadence query to find. */
+  existingAlerts: Array<{ kind: string; started_at: string | null; finished_at: string | null }>;
 }
 
 function makeSupabaseStub(initial: Partial<StoreShape> = {}) {
@@ -46,6 +48,7 @@ function makeSupabaseStub(initial: Partial<StoreShape> = {}) {
     cards: initial.cards ?? [],
     apiCallsThisMonth: initial.apiCallsThisMonth ?? [],
     alerts: initial.alerts ?? [],
+    existingAlerts: initial.existingAlerts ?? [],
   };
 
   const builder = (table: string) => {
@@ -81,6 +84,7 @@ function makeSupabaseStub(initial: Partial<StoreShape> = {}) {
       else if (table === "universes") rows = store.universe ? [store.universe as unknown as Record<string, unknown>] : [];
       else if (table === "cards") rows = store.cards as unknown as Record<string, unknown>[];
       else if (table === "api_calls") rows = store.apiCallsThisMonth as Record<string, unknown>[];
+      else if (table === "system_alerts") rows = store.existingAlerts as unknown as Record<string, unknown>[];
       else rows = [];
 
       let result = rows.filter(matches);
@@ -388,5 +392,144 @@ describe("runDailyIngestion — runId uniqueness", () => {
       expect((alert.payload as { run_id: string }).run_id).toBe("uuid_static_for_test");
     }
     vi.unstubAllGlobals();
+  });
+});
+
+// ─── Cadence gate (U6) ──────────────────────────────────────────────
+//
+// teamId "49ers" is the only team in config/teams.ts. NFL in-season
+// months = [1, 2, 9, 10, 11, 12]; off-season cadence = 3 days.
+
+const team49ers = { id: "49ers", name: "Niners", sport: "nfl", universe_id: "uni_1" };
+const NOW_OFF_SEASON = new Date("2026-05-10T12:00:00Z"); // May = off-season (cadence 3 days)
+const NOW_IN_SEASON = new Date("2026-10-15T12:00:00Z"); // October = in-season (cadence 1 day)
+
+describe("runDailyIngestion — cadence gate", () => {
+  it("short-circuits a scheduled_run in off-season when last completion was <3 days ago", async () => {
+    const { client, store } = makeSupabaseStub({
+      podcasts: fullCatalog.slice(0, 2),
+      team: team49ers,
+      universe: baseUniverse,
+      existingAlerts: [
+        {
+          kind: "scheduled_run_complete",
+          started_at: null,
+          finished_at: "2026-05-09T12:00:00Z", // 24 hours before NOW_OFF_SEASON
+        },
+      ],
+    });
+    const result = await runDailyIngestion({
+      supabase: client,
+      particle: makeParticleStub(),
+      anthropic: makeAnthropicStub(),
+      teamId: "49ers",
+      userId: USER_ID,
+      devMode: false,
+      runKind: "scheduled_run",
+      now: () => NOW_OFF_SEASON,
+    });
+    expect(result.status).toBe("skipped_cadence");
+    expect(result.reason).toContain("cadence not elapsed");
+    expect(store.alerts).toHaveLength(1);
+    expect(store.alerts[0].kind).toBe("skipped_cadence");
+  });
+
+  it("proceeds when off-season cadence has elapsed (last completion >3 days ago)", async () => {
+    const { client } = makeSupabaseStub({
+      podcasts: fullCatalog.slice(0, 2),
+      team: team49ers,
+      universe: baseUniverse,
+      existingAlerts: [
+        {
+          kind: "scheduled_run_complete",
+          started_at: null,
+          finished_at: "2026-05-06T11:00:00Z", // ~97 hours before NOW_OFF_SEASON (>72h cadence)
+        },
+      ],
+    });
+    const result = await runDailyIngestion({
+      supabase: client,
+      particle: makeParticleStub(),
+      anthropic: makeAnthropicStub(),
+      teamId: "49ers",
+      userId: USER_ID,
+      devMode: true,
+      runKind: "scheduled_run",
+      now: () => NOW_OFF_SEASON,
+    });
+    expect(result.status).toBe("completed");
+  });
+
+  it("short-circuits in-season when last completion was <1 day ago", async () => {
+    const { client, store } = makeSupabaseStub({
+      podcasts: fullCatalog.slice(0, 2),
+      team: team49ers,
+      universe: baseUniverse,
+      existingAlerts: [
+        {
+          kind: "scheduled_run_complete",
+          started_at: null,
+          finished_at: "2026-10-15T03:00:00Z", // 9 hours before NOW_IN_SEASON
+        },
+      ],
+    });
+    const result = await runDailyIngestion({
+      supabase: client,
+      particle: makeParticleStub(),
+      anthropic: makeAnthropicStub(),
+      teamId: "49ers",
+      userId: USER_ID,
+      devMode: false,
+      runKind: "scheduled_run",
+      now: () => NOW_IN_SEASON,
+    });
+    expect(result.status).toBe("skipped_cadence");
+    expect(store.alerts[0].kind).toBe("skipped_cadence");
+  });
+
+  it("manual_run ignores cadence entirely — even minutes after a prior completion", async () => {
+    const { client } = makeSupabaseStub({
+      podcasts: fullCatalog.slice(0, 2),
+      team: team49ers,
+      universe: baseUniverse,
+      existingAlerts: [
+        {
+          kind: "manual_run_complete",
+          started_at: null,
+          finished_at: "2026-05-10T11:55:00Z", // 5 minutes before NOW_OFF_SEASON
+        },
+      ],
+    });
+    const result = await runDailyIngestion({
+      supabase: client,
+      particle: makeParticleStub(),
+      anthropic: makeAnthropicStub(),
+      teamId: "49ers",
+      userId: USER_ID,
+      devMode: true,
+      runKind: "manual_run", // explicit; default value of runKind
+      now: () => NOW_OFF_SEASON,
+    });
+    expect(result.status).toBe("completed");
+  });
+
+  it("first run (no prior completion in system_alerts) proceeds regardless of cadence", async () => {
+    const { client } = makeSupabaseStub({
+      podcasts: fullCatalog.slice(0, 2),
+      team: team49ers,
+      universe: baseUniverse,
+      existingAlerts: [],
+    });
+    const result = await runDailyIngestion({
+      supabase: client,
+      particle: makeParticleStub(),
+      anthropic: makeAnthropicStub(),
+      teamId: "49ers",
+      userId: USER_ID,
+      devMode: true,
+      runKind: "scheduled_run",
+      now: () => NOW_OFF_SEASON,
+    });
+    expect(result.status).toBe("completed");
   });
 });

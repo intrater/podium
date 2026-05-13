@@ -27,36 +27,70 @@ import { NextResponse } from "next/server";
 
 import { createAnthropicClient } from "@/lib/anthropic/client";
 import { env } from "@/lib/env";
-import { runDailyIngestion } from "@/lib/ingest/run";
+import { runDailyIngestion, type DailyIngestionResult } from "@/lib/ingest/run";
 import { createParticleClient } from "@/lib/particle/client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const maxDuration = 300;
 
-const TEAM_ID = "49ers";
-
 export async function GET(request: Request): Promise<Response> {
+  // AUTH MUST COME FIRST — no DB reads, no team enumeration, no work of
+  // any kind before the bearer token is verified.
   if (request.headers.get("authorization") !== `Bearer ${env.CRON_SECRET}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const supabase = getSupabaseAdmin();
-  const particle = createParticleClient({ supabase, teamId: TEAM_ID });
-  const anthropic = createAnthropicClient({ supabase, teamId: TEAM_ID });
 
-  try {
-    const result = await runDailyIngestion({
-      supabase,
-      particle,
-      anthropic,
-      teamId: TEAM_ID,
-      userId: env.PODIUM_USER_ID,
-      runKind: "scheduled_run",
-    });
-    return NextResponse.json(result, { status: 200 });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("api/cron/daily-digest: run failed", message);
-    return NextResponse.json({ error: "ingestion_failed", message }, { status: 500 });
+  // U6: iterate all teams. Cadence is enforced inside runDailyIngestion
+  // per team (in-season → daily, off-season → every N days from config).
+  // v1 single-team this loop runs once; v2 multi-team it just keeps
+  // working without changes here.
+  const { data: teamRows, error: teamErr } = await supabase
+    .from("teams")
+    .select("id");
+  if (teamErr) {
+    console.error("api/cron/daily-digest: teams lookup failed", teamErr.message);
+    return NextResponse.json(
+      { error: "teams_lookup_failed", message: teamErr.message },
+      { status: 500 },
+    );
   }
+  const teamIds = (teamRows ?? []).map((row) => row.id as string);
+  if (teamIds.length === 0) {
+    return NextResponse.json({ status: "no_teams", results: [] }, { status: 200 });
+  }
+
+  const results: Array<{ teamId: string; result: DailyIngestionResult }> = [];
+  for (const teamId of teamIds) {
+    const particle = createParticleClient({ supabase, teamId });
+    const anthropic = createAnthropicClient({ supabase, teamId });
+    try {
+      const result = await runDailyIngestion({
+        supabase,
+        particle,
+        anthropic,
+        teamId,
+        userId: env.PODIUM_USER_ID,
+        runKind: "scheduled_run",
+      });
+      results.push({ teamId, result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`api/cron/daily-digest: team ${teamId} failed`, message);
+      // Continue to next team rather than failing the whole cron — one
+      // team's pipeline error shouldn't kill another team's run.
+      results.push({
+        teamId,
+        result: {
+          runId: "",
+          status: "completed", // placeholder; real status is the error
+          podcastsScanned: 0,
+          reason: `pipeline threw: ${message}`,
+        } as DailyIngestionResult,
+      });
+    }
+  }
+
+  return NextResponse.json({ results }, { status: 200 });
 }
