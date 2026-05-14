@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { podcasts } from "@/config/podcasts";
 
 describe("config/podcasts", () => {
-  it("contains exactly 31 entries", () => {
-    expect(podcasts).toHaveLength(31);
+  it("contains exactly 36 entries", () => {
+    expect(podcasts).toHaveLength(36);
   });
 
   it("hits the plan's kind-count thresholds", () => {

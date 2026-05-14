@@ -61,4 +61,11 @@ export const podcasts: readonly CuratedPodcast[] = [
   { particleSlug: "pablo-torre-finds-out", name: "Pablo Torre Finds Out", kind: "national" },
   { particleSlug: "the-right-time", name: "The Right Time with Bomani Jones", kind: "national" },
   { particleSlug: "the-jim-rome-show", name: "The Jim Rome Show", kind: "national" },
+  { particleSlug: "first-things-first", name: "First Things First", kind: "national" },
+  { particleSlug: "nightcap", name: "Nightcap", kind: "national" },
+  { particleSlug: "the-arena-2", name: "The Arena: Gridiron", kind: "national" },
+
+  // ─── Fantasy football ────────────────────────────────────────────────
+  { particleSlug: "fantasy-footballers", name: "Fantasy Footballers", kind: "national" },
+  { particleSlug: "fantasy-football-today", name: "Fantasy Football Today", kind: "national" },
 ];
