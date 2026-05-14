@@ -23,7 +23,6 @@
 
 import "server-only";
 
-import { effectiveCadenceDays, teams as teamConfigs } from "@/config/teams";
 import { estimateCost } from "@/lib/particle/cost-estimate";
 import { env } from "@/lib/env";
 
@@ -63,7 +62,7 @@ export interface DailyIngestionDeps extends PipelineDeps {
 
 export interface DailyIngestionResult {
   runId: string;
-  status: "completed" | "cost_aborted" | "no_podcasts" | "skipped_cadence";
+  status: "completed" | "cost_aborted" | "no_podcasts";
   podcastsScanned: number;
   pipeline?: IngestPipelineOutput;
   estimatedCostUsd?: number;
@@ -79,42 +78,6 @@ export async function runDailyIngestion(
   const devMode = deps.devMode ?? env.INGEST_DEV_MODE;
   const forceReprocess = deps.forceReprocess ?? env.INGEST_FORCE_REPROCESS;
   const runKind = deps.runKind ?? "manual_run";
-
-  // 1a. Cadence gate — only for scheduled runs. Manual runs always bypass
-  //     so a user clicking "Run now" gets fresh content immediately. The
-  //     cadence value comes from config/teams.ts (in-season vs off-season
-  //     per team). Falls back to no-op gate if the team isn't in config
-  //     (v2 admin-added teams) — DB column is the long-term canonical
-  //     value but config is the v1 source of truth.
-  if (runKind === "scheduled_run") {
-    const teamConfig = teamConfigs.find((t) => t.id === deps.teamId);
-    if (teamConfig) {
-      const cadenceDays = effectiveCadenceDays(teamConfig, now);
-      const lastCompletion = await mostRecentCompletion(deps);
-      if (lastCompletion) {
-        const elapsedMs = now.getTime() - lastCompletion.getTime();
-        const requiredMs = cadenceDays * 24 * 60 * 60 * 1000;
-        if (elapsedMs < requiredMs) {
-          const elapsedHours = (elapsedMs / (60 * 60 * 1000)).toFixed(1);
-          const reason =
-            `cadence not elapsed: ${elapsedHours}h since last completion, ` +
-            `${cadenceDays} day(s) required`;
-          await writeSystemAlert(deps, {
-            kind: "skipped_cadence",
-            runId,
-            runKind,
-            reason,
-          });
-          return {
-            runId,
-            status: "skipped_cadence",
-            podcastsScanned: 0,
-            reason,
-          };
-        }
-      }
-    }
-  }
 
   // 1. Load the resolved-id catalog. Skip rows whose particle_id is null —
   //    those are unresolved at seed time and the worker would 404 on
@@ -255,33 +218,6 @@ export async function runDailyIngestion(
     pipeline,
     estimatedCostUsd: estimate.totalUsd,
   };
-}
-
-/**
- * Look up the most recent `scheduled_run_complete` or `manual_run_complete`
- * timestamp for the user's team-scoped activity. Used by the cadence gate
- * to decide whether enough time has passed since the last successful run.
- *
- * Returns null on lookup error or if no prior completion exists (the
- * caller treats null as "no prior run" — cadence gate doesn't fire).
- */
-async function mostRecentCompletion(deps: DailyIngestionDeps): Promise<Date | null> {
-  const { data, error } = await deps.supabase
-    .from("system_alerts")
-    .select("started_at, finished_at")
-    .in("kind", ["scheduled_run_complete", "manual_run_complete"])
-    .order("finished_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.warn(
-      `runDailyIngestion: cadence lookup failed (${error.message}); allowing run`,
-    );
-    return null;
-  }
-  if (!data) return null;
-  const ts = (data.finished_at as string | null) ?? (data.started_at as string | null);
-  return ts ? new Date(ts) : null;
 }
 
 async function computeSinceTimestamp(
