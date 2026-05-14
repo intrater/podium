@@ -75,6 +75,10 @@ export function createAnthropicClient(options: AnthropicClientOptions): Anthropi
     new Anthropic({
       apiKey: env.ANTHROPIC_API_KEY,
       timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      // Bumped from the SDK default (2) so the internal 429 retry has
+      // enough runway when Tier-1 rate limits collide with long-episode
+      // extraction calls. SDK does exponential backoff between attempts.
+      maxRetries: 5,
     });
 
   return {

@@ -49,9 +49,17 @@ export async function POST(request: Request): Promise<Response> {
   // dedup filter so prompt iterations don't require manual DB cleanup.
   // Does NOT bypass the 60s rate limit below or the pre-flight cost
   // gate inside runDailyIngestion — those still apply.
+  const reqUrl = new URL(request.url);
   const forceReprocess =
-    new URL(request.url).searchParams.get("force") === "1" ||
-    env.INGEST_FORCE_REPROCESS;
+    reqUrl.searchParams.get("force") === "1" || env.INGEST_FORCE_REPROCESS;
+  // Episode cap for cheap iteration. `?limit=5` caps to first 5 episodes
+  // so prompt-shape sign-off doesn't process the full 50+ candidate
+  // pool. Absent = no cap.
+  const limitParam = reqUrl.searchParams.get("limit");
+  const maxEpisodes =
+    limitParam !== null && /^\d+$/.test(limitParam)
+      ? Number(limitParam)
+      : undefined;
 
   const recent = await mostRecentManualRun(supabase);
   if (recent) {
@@ -77,6 +85,7 @@ export async function POST(request: Request): Promise<Response> {
       userId: env.PODIUM_USER_ID,
       runKind: "manual_run",
       forceReprocess,
+      maxEpisodes,
     });
     return NextResponse.json(result, { status: 200 });
   } catch (err) {

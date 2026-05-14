@@ -48,7 +48,16 @@ import type {
 
 const PARTICLE_PAGE_LIMIT = 25;
 const PARTICLE_MAX_PAGES = 4;
-const EPISODE_CONCURRENCY = 5;
+// Sequential per-episode extraction. The original concurrency=5 (and
+// even 2) bursts past Anthropic's Tier-1 rate limit of 50K input
+// tokens/min because a typical 60-90 min episode carries 15K-25K
+// tokens of transcript in the user message, plus the 4,384-token
+// cached prefix. Two concurrent calls = 40-50K tokens immediate burst.
+// Sequential with SDK maxRetries=5 (set in lib/anthropic/client.ts)
+// lets the per-call backoff absorb the rate-limit window properly.
+// When the Anthropic tier upgrades (more spend → higher TPM), raise
+// this back up.
+const EPISODE_CONCURRENCY = 1;
 
 interface NormalisedSegment {
   episodeId: string;
@@ -121,10 +130,31 @@ export async function runIngestPipeline(
   ).flat();
 
   // 3. Normalise and dedupe across the two streams.
-  const normalised = dedupeSegments([
+  const allNormalised = dedupeSegments([
     ...entityResults.flatMap((m) => normaliseFromMention(m)),
     ...semanticResults.flatMap((s) => normaliseFromSearch(s)),
   ]);
+
+  // 3a. Filter to podcasts in our curated catalog. Particle's entity-
+  //     mention search returns hits from across its entire universe,
+  //     not just the podcasts we know about. Episodes from uncatalogued
+  //     podcasts would FK-violate on the episodes.podcast_id column at
+  //     persistence time, so we drop them here before paying for
+  //     transcript fetches and Claude calls.
+  const catalogParticleIds = new Set(
+    (
+      await deps.supabase.from("podcasts").select("particle_id")
+    ).data?.map((row) => row.particle_id as string).filter(Boolean) ?? [],
+  );
+  const normalised = allNormalised.filter((s) =>
+    catalogParticleIds.has(s.episode.podcast.id),
+  );
+  const droppedOutOfCatalog = allNormalised.length - normalised.length;
+  if (droppedOutOfCatalog > 0) {
+    console.log(
+      `pipeline: dropped ${droppedOutOfCatalog} segment(s) from uncatalogued podcasts (kept ${normalised.length}).`,
+    );
+  }
 
   // 4. Filter to segments not already persisted (cross-run dedupe).
   //    Skipped entirely under forceReprocess — re-fetches every segment.
@@ -155,7 +185,10 @@ export async function runIngestPipeline(
     transcript: ParticleTranscriptLine[] | null;
   };
 
-  const episodeKeys = [...byEpisode.keys()];
+  let episodeKeys = [...byEpisode.keys()];
+  if (input.maxEpisodes !== undefined && input.maxEpisodes >= 0) {
+    episodeKeys = episodeKeys.slice(0, input.maxEpisodes);
+  }
   const episodeResults = await mapWithConcurrency(
     episodeKeys,
     EPISODE_CONCURRENCY,

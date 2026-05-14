@@ -37,7 +37,6 @@ import { buildEpisodeExtractionSystemPrompt } from "./prompts/episode-extraction
 import {
   ANTHROPIC_MODEL,
   AnthropicError,
-  AnthropicQuoteFidelityError,
   AnthropicSchemaError,
   AnthropicTransientError,
   type EpisodeExtractionInput,
@@ -203,38 +202,60 @@ function parseAndValidate(
     );
   }
 
-  // Validate each moment: anchor id must exist, pull quotes must be
-  // verbatim substrings. Collect offending data across all moments so
-  // the retry message can surface every problem at once.
-  const offendingQuotes: string[] = [];
+  // Anchor-id validation is fatal: a moment whose particle_segment_id
+  // isn't in our anchors list breaks the persistence layer's FK
+  // assumption. We retry on this to let the model self-correct.
   const unknownAnchors: string[] = [];
   for (const moment of parsed.data.moments) {
     if (!anchorIds.has(moment.particle_segment_id)) {
       unknownAnchors.push(moment.particle_segment_id);
     }
-    for (const quote of moment.pull_quotes) {
-      if (!normalizedTranscript.includes(normalizeQuotes(quote))) {
-        offendingQuotes.push(quote);
-      }
-    }
   }
-
   if (unknownAnchors.length > 0) {
     throw new AnthropicSchemaError(
       "extract_episode_moments",
       `Moments reference particle_segment_id(s) not in the anchors list: ${unknownAnchors.join(", ")}`,
     );
   }
-  if (offendingQuotes.length > 0) {
-    throw new AnthropicQuoteFidelityError(
-      "extract_episode_moments",
-      `Pull quotes not found in transcript: ${offendingQuotes.length}`,
-      offendingQuotes,
+
+  // Pull quote fidelity: graceful degradation, not fatal. The model
+  // sometimes paraphrases or smooths quotes even with strict prompt
+  // language. Dropping the offending quote and keeping the rest of the
+  // moment (summary, bullets, valid quotes) preserves the card. A
+  // moment with zero quotes is still useful — it has the summary and
+  // bullets. Failing the whole episode for one bad quote means real
+  // 49ers content disappears from the digest entirely, which is the
+  // worse failure mode.
+  let droppedQuoteCount = 0;
+  const validatedMoments: EpisodeMoment[] = parsed.data.moments.map((moment) => {
+    const validQuotes: string[] = [];
+    const droppedQuotes: string[] = [];
+    for (const quote of moment.pull_quotes) {
+      if (normalizedTranscript.includes(normalizeQuotes(quote))) {
+        validQuotes.push(quote);
+      } else {
+        droppedQuotes.push(quote);
+      }
+    }
+    if (droppedQuotes.length > 0) {
+      droppedQuoteCount += droppedQuotes.length;
+      // Log the first dropped quote per moment so prompt-iteration
+      // debugging doesn't require re-running.
+      console.warn(
+        `extract_episode_moments: dropped ${droppedQuotes.length} non-verbatim quote(s) from moment ${moment.particle_segment_id}. Example: "${droppedQuotes[0].slice(0, 160)}"`,
+      );
+    }
+    return { ...moment, pull_quotes: validQuotes };
+  });
+
+  if (droppedQuoteCount > 0) {
+    console.warn(
+      `extract_episode_moments: total ${droppedQuoteCount} quote(s) dropped across ${parsed.data.moments.length} moment(s) this call.`,
     );
   }
 
   return {
-    moments: parsed.data.moments as readonly EpisodeMoment[],
+    moments: validatedMoments as readonly EpisodeMoment[],
     episode_rollup: parsed.data.episode_rollup,
   };
 }
@@ -272,11 +293,6 @@ function buildRetryMessages(
 }
 
 function correctiveMessage(err: Error): string {
-  if (err instanceof AnthropicQuoteFidelityError) {
-    return `Your prior tool call included pull_quotes that are not verbatim substrings of the transcript. Offending quote(s): ${err.offendingQuotes
-      .map((q) => `"${q}"`)
-      .join("; ")}. Drop any quote you can't reproduce verbatim from the transcript text and call ${TOOL_NAME} again.`;
-  }
   if (err instanceof AnthropicSchemaError) {
     return `Your prior tool call did not match the required shape: ${err.message}. Call ${TOOL_NAME} again with the corrections applied.`;
   }

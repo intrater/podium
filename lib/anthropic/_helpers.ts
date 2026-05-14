@@ -18,16 +18,35 @@ export function findToolUse(message: Message, toolName: string): ToolUseBlock | 
 }
 
 /**
- * Replace U+2018/2019/201C/201D and a few near-equivalents with their
- * straight-ASCII counterparts so substring fidelity checks ignore the
- * typographic normalization mismatches Particle's transcripts vs the
- * model's pull-quote output routinely exhibit.
+ * Normalize text for substring-based quote fidelity checks.
+ *
+ * Pull quotes from the LLM need to match transcript text from Particle.
+ * The LLM is faithful to content but drifts on surface: smooths
+ * filler stutters, collapses speaker turn pauses, adjusts punctuation,
+ * smart-quotes vs straight. Particle transcripts add their own noise:
+ * variable whitespace, "[crosstalk]" markers, capitalization of
+ * sentence-starts the LLM may not preserve when pulling mid-sentence.
+ *
+ * The aggressive normalization here strips all non-alphanumeric chars
+ * except apostrophes (preserving contractions like "don't" → "don't"),
+ * lowercases, collapses whitespace. The substring check after this
+ * pass tolerates essentially all cosmetic drift. It only fails when
+ * the quote contains words the transcript doesn't, which is the
+ * fabrication case we actually want to flag.
  */
 export function normalizeQuotes(text: string): string {
   return text
     .replace(/[‘’‚‛]/g, "'")
     .replace(/[“”„‟]/g, '"')
-    .replace(/–/g, "-")
-    .replace(/—/g, "-")
-    .replace(/…/g, "...");
+    .replace(/[–—]/g, "-")
+    .replace(/…/g, "...")
+    // Strip everything that isn't a letter, number, apostrophe, or
+    // whitespace. Apostrophes preserved so "don't" / "didn't" still
+    // round-trip cleanly. Apostrophe inside word vs at end (like
+    // possessive "Jones'") doesn't break the substring check because
+    // the original transcript would have the same character.
+    .replace(/[^\p{L}\p{N}'\s]/gu, " ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }

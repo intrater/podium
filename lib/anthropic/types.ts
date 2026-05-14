@@ -122,17 +122,6 @@ export class AnthropicSchemaError extends AnthropicError {
   override name = "AnthropicSchemaError";
 }
 
-export class AnthropicQuoteFidelityError extends AnthropicError {
-  override name = "AnthropicQuoteFidelityError";
-  constructor(
-    operation: string,
-    message: string,
-    public readonly offendingQuotes: readonly string[],
-  ) {
-    super(operation, message);
-  }
-}
-
 export class AnthropicTransientError extends AnthropicError {
   override name = "AnthropicTransientError";
   constructor(

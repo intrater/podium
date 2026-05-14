@@ -52,6 +52,11 @@ export interface DailyIngestionDeps extends PipelineDeps {
    * route-level 60s rate limit or the pre-flight cost gate.
    */
   forceReprocess?: boolean;
+  /**
+   * Cap the number of episodes processed in this run. Threaded from
+   * the manual route's `?limit=N` query param. Absent = no cap.
+   */
+  maxEpisodes?: number;
   /** Inject `now()` for tests. */
   now?: () => Date;
 }
@@ -219,6 +224,7 @@ export async function runDailyIngestion(
       untilTimestamp: now.toISOString(),
       runId,
       forceReprocess,
+      maxEpisodes: deps.maxEpisodes,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -209,23 +209,28 @@ describe("extractEpisodeMoments — happy path", () => {
   });
 });
 
-// ── quote fidelity ────────────────────────────────────────────────────
+// ── quote fidelity (graceful degradation) ────────────────────────────
+//
+// Quote fidelity failures are no longer fatal. Bad quotes get dropped;
+// the moment survives with its summary + bullets + any valid quotes.
+// This preserves cards on real 49ers content when the model lightly
+// rephrases a quote — the worse failure mode is the entire episode
+// disappearing from the digest.
 
-describe("extractEpisodeMoments — quote fidelity", () => {
-  it("retries when a pull_quote isn't a verbatim transcript substring, then accepts the corrected version", async () => {
+describe("extractEpisodeMoments — quote fidelity (graceful degradation)", () => {
+  it("drops a fabricated pull_quote and keeps the moment with the valid quote(s)", async () => {
     const recorded: RecordedCall[] = [];
-    const fabricatedMoment = {
+    const mixedMoment = {
       ...VALID_MOMENT,
       pull_quotes: [
-        // Identical to the transcript line.
+        // Valid — appears verbatim in the transcript.
         "I think the most underrated thing about Brock Purdy this year is just how comfortable he looks in the pocket.",
         // Fabricated — not in transcript.
         "Brock Purdy is the best QB in the NFL.",
       ],
     };
     const { messages } = makeSdkStub(
-      toolUseMessage({ moments: [fabricatedMoment], episode_rollup: "Roll up" }),
-      toolUseMessage({ moments: [VALID_MOMENT], episode_rollup: "Roll up" }),
+      toolUseMessage({ moments: [mixedMoment], episode_rollup: "Roll up" }),
     );
     const client = createAnthropicClient({
       supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
@@ -235,19 +240,23 @@ describe("extractEpisodeMoments — quote fidelity", () => {
     const out = await extractEpisodeMoments(client, baseInput);
     expect(out).not.toBeNull();
     expect(out!.moments).toHaveLength(1);
-    // Retry happened — two telemetry rows, both valid.
-    expect(recorded).toHaveLength(2);
+    // Only the valid quote survives. No retry — graceful degrade.
+    expect(out!.moments[0].pull_quotes).toHaveLength(1);
+    expect(out!.moments[0].pull_quotes[0]).toContain("comfortable he looks in the pocket");
+    expect(recorded).toHaveLength(1);
   });
 
-  it("returns null after two failed attempts (fabricated quote on both)", async () => {
+  it("keeps the moment with an empty quotes array when ALL quotes fail fidelity", async () => {
     const recorded: RecordedCall[] = [];
-    const fabricatedMoment = {
+    const allFabricated = {
       ...VALID_MOMENT,
-      pull_quotes: ["This quote was never said by anyone in the transcript."],
+      pull_quotes: [
+        "This quote was never said by anyone.",
+        "Neither was this one.",
+      ],
     };
     const { messages } = makeSdkStub(
-      toolUseMessage({ moments: [fabricatedMoment], episode_rollup: "x" }),
-      toolUseMessage({ moments: [fabricatedMoment], episode_rollup: "x" }),
+      toolUseMessage({ moments: [allFabricated], episode_rollup: "Roll up" }),
     );
     const client = createAnthropicClient({
       supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
@@ -255,7 +264,35 @@ describe("extractEpisodeMoments — quote fidelity", () => {
     });
 
     const out = await extractEpisodeMoments(client, baseInput);
-    expect(out).toBeNull();
+    expect(out).not.toBeNull();
+    // Moment survives with empty pull_quotes; summary + bullets are still there.
+    expect(out!.moments).toHaveLength(1);
+    expect(out!.moments[0].pull_quotes).toHaveLength(0);
+    expect(out!.moments[0].summary).toBeTruthy();
+    expect(out!.moments[0].bullets.length).toBeGreaterThan(0);
+  });
+
+  it("normalizes typographic differences so smart-quote / case / punctuation drift doesn't fail the check", async () => {
+    const recorded: RecordedCall[] = [];
+    const cosmeticallyDifferentQuote = {
+      ...VALID_MOMENT,
+      pull_quotes: [
+        // Smart-quoted, capitalized, with an extra comma — still the same content.
+        "“I think the most underrated thing about Brock Purdy this year, is just how comfortable he looks in the pocket”",
+      ],
+    };
+    const { messages } = makeSdkStub(
+      toolUseMessage({ moments: [cosmeticallyDifferentQuote], episode_rollup: "r" }),
+    );
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+    });
+
+    const out = await extractEpisodeMoments(client, baseInput);
+    expect(out).not.toBeNull();
+    // Quote passed despite cosmetic differences.
+    expect(out!.moments[0].pull_quotes).toHaveLength(1);
   });
 });
 

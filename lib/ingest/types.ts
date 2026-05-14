@@ -37,6 +37,13 @@ export interface IngestPipelineInput {
    * without manual DB cleanup. Default: false.
    */
   forceReprocess?: boolean;
+  /**
+   * Cap the number of episodes processed in this run. Set via the
+   * `?limit=N` query param on POST /api/ingest. Used during prompt
+   * iteration to keep validation runs cheap and fast (5-episode sample
+   * is plenty for content-shape sign-off). Absent = no cap.
+   */
+  maxEpisodes?: number;
 }
 
 export interface IngestPipelineOutput {
