@@ -66,6 +66,14 @@ interface SearchByContentBase {
   until?: string;
   cursor?: string;
   limit?: number;
+  /**
+   * Particle entity ID to scope the search to. Surface ships per docs;
+   * live narrowing behavior unverified (see U2 of the 2026-05-14 Particle
+   * API optimizations plan).
+   */
+  entityId?: string;
+  /** Same gating semantics as `entityId`, scoped to a company. */
+  companyId?: string;
 }
 
 /**
@@ -193,6 +201,8 @@ export function createParticleClient(config: ParticleClientOptions): ParticleCli
       const qs = buildQuery({
         keyword_search: opts.keyword,
         semantic_search: opts.semantic,
+        entity_id: opts.entityId,
+        company_id: opts.companyId,
         since: opts.since,
         until: opts.until,
         cursor: opts.cursor,

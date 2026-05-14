@@ -507,6 +507,42 @@ describe("Particle client — searchByContent discriminated union", () => {
     expect(url).toContain("keyword_search=49ers");
     expect(url).toContain("semantic_search=");
   });
+
+  it("forwards entityId as entity_id when supplied", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { data: [], has_more: false }));
+    const { particle } = makeClient(fetcher, recorded);
+    await particle.searchByContent({ semantic: "draft picks", entityId: "ent_123" });
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toContain("semantic_search=draft+picks");
+    expect(url).toContain("entity_id=ent_123");
+  });
+
+  it("forwards companyId as company_id when supplied", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { data: [], has_more: false }));
+    const { particle } = makeClient(fetcher, recorded);
+    await particle.searchByContent({ keyword: "iphone", companyId: "co_apple" });
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toContain("keyword_search=iphone");
+    expect(url).toContain("company_id=co_apple");
+  });
+
+  it("omits entity_id and company_id when not supplied", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { data: [], has_more: false }));
+    const { particle } = makeClient(fetcher, recorded);
+    await particle.searchByContent({ keyword: "49ers" });
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).not.toContain("entity_id");
+    expect(url).not.toContain("company_id");
+  });
 });
 
 // ─── Cost dry-run ────────────────────────────────────────────────────
