@@ -39,8 +39,9 @@ export interface SeedConfig {
    *
    * The resolver interface is intentionally narrower than the full
    * `lib/particle/client.ts` ParticleClient — the seed only needs
-   * listPodcasts + listEntities and runs outside the Next.js
-   * server-only graph.
+   * getPodcastBySlug + getEntityBySlug (with the legacy list methods
+   * retained for the tests that still use them) and runs outside the
+   * Next.js server-only graph.
    */
   particle?: SeedParticleResolver;
 }
@@ -203,11 +204,20 @@ async function resolvePodcastIds(
 
 async function lookupPodcastId(
   particle: SeedParticleResolver,
-  name: string,
+  _name: string,
   slug: string,
 ): Promise<string | undefined> {
-  const response = await particle.listPodcasts({ q: name, limit: 5 });
-  return response.data.find((p) => p.slug === slug)?.id;
+  // Particle's `/v1/podcasts/{id}` resolves slug → record directly.
+  // 404 is treated as "not found" — anything else surfaces as an error
+  // so a transient API problem doesn't masquerade as an unresolved slug.
+  try {
+    const podcast = await particle.getPodcastBySlug(slug);
+    return podcast.id;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("HTTP 404")) return undefined;
+    throw err;
+  }
 }
 
 async function resolveEntityIds(
@@ -254,25 +264,15 @@ async function lookupEntityId(
   particle: SeedParticleResolver,
   slug: string,
 ): Promise<string | undefined> {
-  // Particle's /v1/entities only accepts a free-text query, and there's
-  // no clean way to invert a slug back into the canonical query string
-  // when the underlying name carried hyphens (e.g. "yetur-gross-matos"
-  // → "Yetur Gross-Matos" needs the first separator as a space and the
-  // second as a literal hyphen). Try common variants in order and pick
-  // the first response whose slug matches:
-  //
-  //   1. all hyphens → spaces (handles single-word + multi-word names)
-  //   2. first hyphen → space, rest preserved (handles hyphenated surnames)
-  //   3. raw slug (last-resort fallback)
-  const variants = [
-    slug.replace(/-/g, " "),
-    slug.replace(/-/, " "),
-    slug,
-  ];
-  for (const query of variants) {
-    const response = await particle.listEntities({ q: query, limit: 10 });
-    const match = response.data.find((e) => e.slug === slug);
-    if (match) return match.id;
+  // Particle's `/v1/entities/{id}` resolves slug → record directly,
+  // sidestepping the prior free-text query variants needed to invert
+  // hyphenated names like "yetur-gross-matos".
+  try {
+    const entity = await particle.getEntityBySlug(slug);
+    return entity.id;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("HTTP 404")) return undefined;
+    throw err;
   }
-  return undefined;
 }

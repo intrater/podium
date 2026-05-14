@@ -23,6 +23,8 @@ const BASE_URL = "https://api.particle.pro";
 export interface SeedParticleResolver {
   listPodcasts(opts: { q: string; limit?: number }): Promise<PaginatedResponse<ParticlePodcast>>;
   listEntities(opts: { q: string; limit?: number }): Promise<PaginatedResponse<ParticleEntity>>;
+  getPodcastBySlug(slugOrId: string): Promise<ParticlePodcast>;
+  getEntityBySlug(slugOrId: string): Promise<ParticleEntity>;
 }
 
 export function createSeedParticleResolver(apiKey: string): SeedParticleResolver {
@@ -54,6 +56,12 @@ export function createSeedParticleResolver(apiKey: string): SeedParticleResolver
     },
     async listEntities({ q, limit }) {
       return get<PaginatedResponse<ParticleEntity>>("/v1/entities", { q, limit });
+    },
+    async getPodcastBySlug(slugOrId) {
+      return get<ParticlePodcast>(`/v1/podcasts/${encodeURIComponent(slugOrId)}`, {});
+    },
+    async getEntityBySlug(slugOrId) {
+      return get<ParticleEntity>(`/v1/entities/${encodeURIComponent(slugOrId)}`, {});
     },
   };
 }

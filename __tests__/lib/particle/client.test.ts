@@ -123,6 +123,91 @@ describe("Particle client — happy path", () => {
   });
 });
 
+// ─── Direct-resource GETs (U1) ───────────────────────────────────────
+
+describe("Particle client — direct-resource GETs", () => {
+  it("getPodcastBySlug hits /v1/podcasts/{slug} and is billed at standard tier", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { id: "pod_42", title: "Locked On 49ers", slug: "locked-on-49ers" }));
+    const { particle } = makeClient(fetcher, recorded);
+
+    const result = await particle.getPodcastBySlug("locked-on-49ers");
+
+    expect(result.id).toBe("pod_42");
+    expect(result.slug).toBe("locked-on-49ers");
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toBe("https://api.particle.pro/v1/podcasts/locked-on-49ers");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].endpoint).toBe("podcasts.get");
+    expect(recorded[0].tier).toBe("standard");
+  });
+
+  it("getEntityBySlug hits /v1/entities/{slug} at standard tier", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { id: "ent_purdy", slug: "brock-purdy", name: "Brock Purdy" }));
+    const { particle } = makeClient(fetcher, recorded);
+
+    const result = await particle.getEntityBySlug("brock-purdy");
+
+    expect(result.id).toBe("ent_purdy");
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toBe("https://api.particle.pro/v1/entities/brock-purdy");
+    expect(recorded[0].endpoint).toBe("entities.get");
+    expect(recorded[0].tier).toBe("standard");
+  });
+
+  it("getEpisodeById hits /v1/podcasts/episodes/{id} at standard tier", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        id: "ep_xyz",
+        title: "Camp Day 1",
+        podcast: { id: "pod_42", title: "Locked On 49ers" },
+        duration_seconds: 3650,
+      }),
+    );
+    const { particle } = makeClient(fetcher, recorded);
+
+    const result = await particle.getEpisodeById("ep_xyz");
+
+    expect(result.id).toBe("ep_xyz");
+    expect(result.duration_seconds).toBe(3650);
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toBe("https://api.particle.pro/v1/podcasts/episodes/ep_xyz");
+    expect(recorded[0].endpoint).toBe("podcasts.episodes.get");
+    expect(recorded[0].tier).toBe("standard");
+  });
+
+  it("URL-encodes special characters in slugs and ids", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { id: "ent_x", slug: "a&b", name: "A & B" }));
+    const { particle } = makeClient(fetcher, recorded);
+
+    // `&` would otherwise act as a query separator if interpolated raw.
+    await particle.getEntityBySlug("a&b");
+
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toBe("https://api.particle.pro/v1/entities/a%26b");
+  });
+
+  it("404 surfaces as ParticleTransientError (no retry, cost charged)", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi.fn().mockResolvedValue(jsonResponse(404, { error_code: "not_found" }));
+    const { particle } = makeClient(fetcher, recorded);
+
+    await expect(particle.getPodcastBySlug("never-existed")).rejects.toThrow(ParticleTransientError);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].cost_usd).toBeGreaterThan(0);
+  });
+});
+
 // ─── Zero results still cost ─────────────────────────────────────────
 
 describe("Particle client — zero results still cost", () => {

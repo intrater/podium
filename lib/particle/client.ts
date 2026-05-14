@@ -124,6 +124,11 @@ export interface ParticleClient {
   listEntities(opts: ListEntitiesOpts): Promise<PaginatedResponse<ParticleEntity>>;
   listPodcasts(opts: ListPodcastsOpts): Promise<PaginatedResponse<ParticlePodcast>>;
   listEpisodes(opts: ListEpisodesOpts): Promise<PaginatedResponse<ParticleEpisode>>;
+  // Direct-resource GETs — Particle treats slug and ID as fungible
+  // identifiers in `{id}` slots, so a single param accepts both.
+  getPodcastBySlug(slugOrId: string): Promise<ParticlePodcast>;
+  getEntityBySlug(slugOrId: string): Promise<ParticleEntity>;
+  getEpisodeById(episodeId: string): Promise<ParticleEpisode>;
   getClip(clipId: string): Promise<ParticleClip>;
   getClipTranscript(opts: GetTranscriptOpts): Promise<ParticleEpisodeTranscript>;
   getWordLevelTranscript(opts: GetTranscriptOpts): Promise<ParticleWordTranscript>;
@@ -142,8 +147,11 @@ const ENDPOINT_TIER: Record<string, ParticleTier> = {
   "podcasts.transcript.lines": "premium",
   "podcasts.transcript.words": "premium",
   "entities.list": "standard",
+  "entities.get": "standard",
   "podcasts.list": "standard",
+  "podcasts.get": "standard",
   "podcasts.episodes.list": "standard",
+  "podcasts.episodes.get": "standard",
   "podcasts.episodes.clips.list": "standard",
 };
 
@@ -223,6 +231,18 @@ export function createParticleClient(config: ParticleClientOptions): ParticleCli
         limit: opts.limit,
       });
       return call("podcasts.episodes.list", `/v1/podcasts/episodes${qs}`);
+    },
+
+    async getPodcastBySlug(slugOrId) {
+      return call("podcasts.get", `/v1/podcasts/${id(slugOrId)}`);
+    },
+
+    async getEntityBySlug(slugOrId) {
+      return call("entities.get", `/v1/entities/${id(slugOrId)}`);
+    },
+
+    async getEpisodeById(episodeId) {
+      return call("podcasts.episodes.get", `/v1/podcasts/episodes/${id(episodeId)}`);
     },
 
     async getClip(clipId) {
