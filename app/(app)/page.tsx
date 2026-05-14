@@ -3,6 +3,7 @@ import { EpisodeCard } from "@/components/digest/episode-card";
 import { DigestEmptyFallback } from "@/components/digest/empty-fallback";
 import { DigestLoadingState } from "@/components/digest/loading-state";
 import { RefreshBanner } from "@/components/digest/refresh-banner";
+import { ScanSummary } from "@/components/digest/scan-summary";
 import {
   loadDigestCards,
   loadLatestRunStatus,
@@ -89,6 +90,7 @@ export default async function DigestPage() {
   return (
     <>
       <RefreshBanner initialRunCreatedAt={latestRun.createdAt} />
+      <ScanSummary cards={cards} />
       <ul className="flex flex-col gap-3">
         {cards.map((card) => (
           <li key={card.id}>
