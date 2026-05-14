@@ -260,6 +260,7 @@ describe("formatTotalTime", () => {
         title: "",
         publishedAt: null,
         audioUrl: null,
+        durationSeconds: null,
         podcast: { id: "", name: "" },
       },
       segments: Array.from({ length: segmentCount }, (_, i) => ({

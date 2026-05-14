@@ -45,6 +45,7 @@ export interface DigestCard {
     title: string;
     publishedAt: string | null;
     audioUrl: string | null;
+    durationSeconds: number | null;
     podcast: { id: string; name: string };
   };
   segments: DigestSegment[];
@@ -60,6 +61,7 @@ interface CardRow {
     title: string;
     published_at: string | null;
     audio_url: string | null;
+    duration_seconds: number | null;
     podcasts: { id: string; name: string } | null;
     segments: Array<{
       id: string;
@@ -101,7 +103,7 @@ export async function loadDigestCards(
         `
           id, surfaced_at, total_relevant_seconds, episode_summary,
           episodes (
-            id, title, published_at, audio_url,
+            id, title, published_at, audio_url, duration_seconds,
             podcasts ( id, name ),
             segments (
               id, particle_segment_id, start_seconds, end_seconds,
@@ -169,6 +171,7 @@ export async function loadDigestCards(
         title: episode.title,
         publishedAt: episode.published_at,
         audioUrl: episode.audio_url,
+        durationSeconds: episode.duration_seconds,
         podcast: { id: podcast.id, name: podcast.name },
       },
       segments,

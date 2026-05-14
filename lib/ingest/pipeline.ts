@@ -269,6 +269,7 @@ export async function runIngestPipeline(
           title: result.episode.title,
           published_at: result.episode.published_at,
           audio_url: result.episode.audio_url,
+          duration_seconds: result.episode.duration_seconds ?? null,
         },
         { onConflict: "particle_episode_id" },
       )

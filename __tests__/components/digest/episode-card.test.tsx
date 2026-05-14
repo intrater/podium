@@ -25,6 +25,7 @@ function card(overrides: Partial<DigestCard> = {}): DigestCard {
       title: "What we learned from the rookie minicamp",
       publishedAt: "2026-05-09T18:00:00Z",
       audioUrl: "https://example.com/audio.mp3",
+      durationSeconds: null,
       podcast: { id: "pod-1", name: "Niners Nation Daily" },
     },
     segments: [
