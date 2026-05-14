@@ -1,0 +1,144 @@
+---
+source: https://docs.particle.pro/llms.txt
+snapshot: 2026-05-14
+refresh: curl -sL https://docs.particle.pro/llms.txt -o docs/reference/particle-api-index.md (then re-add this frontmatter)
+scope: compact endpoint index with one-line descriptions. Use this to scan for the right endpoint; jump to particle-api.md for the full shape.
+---
+
+# Particle API
+
+## Docs
+
+- [Get a company](https://docs.particle.pro/api-reference/companies/get-a-company.md): Returns a single company by slug (e.g., 'apple'), domain (e.g., 'apple.com'), or ID.
+- [Get company advertising profile](https://docs.particle.pro/api-reference/companies/get-company-advertising-profile.md): Returns advertising intelligence for a specific company across the podcast ecosystem, including reach metrics and recent ad placements. Identify the company by slug (e.g., 'apple'), domain, or ID.
+- [List companies](https://docs.particle.pro/api-reference/companies/list-companies.md): Returns a paginated list of companies. Filter by entity slug (e.g., 'apple'), ticker, domain, CIK, or QID. Search by name or fetch updates since a timestamp.
+- [List company competitors](https://docs.particle.pro/api-reference/companies/list-company-competitors.md): Returns a paginated list of competitors for a company, ordered by prominence (news coverage volume, market cap, podcast appearances, Wikidata notability) so the largest / most-newsworthy competitors come first. Each result includes a competitive basis describing the relationship. Identify the compan…
+- [List company products](https://docs.particle.pro/api-reference/companies/list-company-products.md): Returns the product hierarchy for a company as a nested tree. Segments contain product lines, which contain individual products. Identify the company by slug (e.g., 'apple'), domain, or ID. Defaults to active products only.
+- [Get clip embed](https://docs.particle.pro/api-reference/embed/get-clip-embed.md): Returns a minimal public representation of a clip for embed rendering.
+- [Get clip embed transcript](https://docs.particle.pro/api-reference/embed/get-clip-embed-transcript.md): Returns the diarized transcript for a clip embed.
+- [Get episode embed code](https://docs.particle.pro/api-reference/embed/get-episode-embed-code.md): Returns a paste-ready <particle-podcast-clip> HTML snippet for an existing clip or a custom timestamp range within an episode. Either clip_id or start (with optional end) must be supplied; the two modes are mutually exclusive.
+- [Get an entity](https://docs.particle.pro/api-reference/entities/get-an-entity.md): Returns a single knowledge graph entity by slug (e.g., 'sam-altman', 'apple') or ID.
+- [List entities](https://docs.particle.pro/api-reference/entities/list-entities.md): Search and list knowledge graph entities (people, organizations, places) across all podcast content. Defaults to the most frequently appearing entities ranked by number of distinct podcast episodes featuring them when no query or podcast filter is provided. Filter by podcast slug or ID.
+- [List entity types](https://docs.particle.pro/api-reference/entities/list-entity-types.md): Returns the entity categories supported as values for the `type` query parameter on /v1/entities and the `entity_type` query parameter on /v1/podcasts/search.
+- [Introduction](https://docs.particle.pro/api-reference/introduction.md): Particle API reference — base URL, authentication, and machine-readable specs.
+- [Get a sponsor](https://docs.particle.pro/api-reference/podcast-advertising/get-a-sponsor.md): Returns a single advertising sponsor with activity metrics. The {id} path parameter accepts a sponsor ID, a company ID, a company domain, or a company slug.
+- [Get advertising leaderboard](https://docs.particle.pro/api-reference/podcast-advertising/get-advertising-leaderboard.md): Returns the top podcast advertising sponsors ranked by the specified metric, with optional time range and company filtering.
+- [Get sponsor co-occurrence](https://docs.particle.pro/api-reference/podcast-advertising/get-sponsor-co-occurrence.md): Returns pairs of sponsors that frequently appear together in the same podcast episodes.
+- [List podcasts for a sponsor](https://docs.particle.pro/api-reference/podcast-advertising/list-podcasts-for-a-sponsor.md): Returns a paginated list of podcasts where the sponsor advertises, ordered by the number of episodes featuring the sponsor.
+- [List sponsors](https://docs.particle.pro/api-reference/podcast-advertising/list-sponsors.md): Returns a paginated list of podcast advertising sponsors, optionally filtered by name search or company.
+- [Get a clip](https://docs.particle.pro/api-reference/podcast-clips/get-a-clip.md): Returns a single clip by its unique identifier.
+- [List clips](https://docs.particle.pro/api-reference/podcast-clips/list-clips.md): Returns AI-extracted highlight clips across podcast episodes, ranked by engagement potential. For text-based clip discovery (semantic, keyword, or entity mention search), use GET /v1/podcasts/search — matching clips are embedded inside each search result alongside the parent segment and dialogue.
+- [List clips for an episode](https://docs.particle.pro/api-reference/podcast-clips/list-clips-for-an-episode.md): Returns the AI-extracted highlight clips for a specific episode, sorted by engagement score.
+- [Get an episode](https://docs.particle.pro/api-reference/podcast-episodes/get-an-episode.md): Returns a single episode by its unique identifier.
+- [List ads in an episode](https://docs.particle.pro/api-reference/podcast-episodes/list-ads-in-an-episode.md): Returns the advertising spots detected in a specific episode, including the sponsor, the linked company in the knowledge graph, the advertised product or offer, the read type (HOST_READ vs PRE_RECORDED), and the placement (PRE_ROLL/MID_ROLL/POST_ROLL). Network promos are excluded.
+- [List entities in an episode](https://docs.particle.pro/api-reference/podcast-episodes/list-entities-in-an-episode.md): Returns knowledge graph entities mentioned in a specific episode, with salience scores and occurrence counts.
+- [List episodes](https://docs.particle.pro/api-reference/podcast-episodes/list-episodes.md): Returns a paginated list of podcast episodes across all podcasts. Filter by podcast slug or ID, entity slug or ID, company slug or domain, date range, and language.
+- [List speakers in an episode](https://docs.particle.pro/api-reference/podcast-episodes/list-speakers-in-an-episode.md): Returns the identified speakers in a specific episode with their roles and speaking durations.
+- [List topics for an episode](https://docs.particle.pro/api-reference/podcast-episodes/list-topics-for-an-episode.md): Returns the topic taxonomy classifications for a specific episode.
+- [Get a podcast publisher](https://docs.particle.pro/api-reference/podcast-publishers/get-a-podcast-publisher.md): Returns a single podcast publisher by slug (e.g., 'goalhanger', 'iheartpodcasts', 'bbc-radio-4') or ID. Slugs are human-readable identifiers populated for the vast majority of publishers and are the recommended way to reference a publisher in URLs. The ID always works as a fallback for publishers wh…
+- [List podcast publishers](https://docs.particle.pro/api-reference/podcast-publishers/list-podcast-publishers.md): Returns a paginated list of podcast publishers, ordered by catalog size (largest first, the default) or alphabetically by name. Each entry includes the publisher name, slug, and the number of podcasts attributed to the publisher.
+- [List podcasts for a publisher](https://docs.particle.pro/api-reference/podcast-publishers/list-podcasts-for-a-publisher.md): Returns a paginated list of podcasts attributed to a publisher, ordered by popularity. Identify the publisher by slug (e.g., 'goalhanger', 'iheartpodcasts', 'bbc-radio-4') or ID.
+- [Get chart slot history](https://docs.particle.pro/api-reference/podcast-rankings/get-chart-slot-history.md): Returns historical chart snapshots for a chart slot, ordered most-recent first. Set `since` / `until` to bound the time range; set `podcast_id` to filter to one podcast within the slot.
+- [Get historical rankings for a podcast](https://docs.particle.pro/api-reference/podcast-rankings/get-historical-rankings-for-a-podcast.md): Returns the historical rank entries for a podcast across one or more chart slots. Optional filters narrow the scope (single source, single country, single category, or a date range).
+- [List current rankings for a podcast](https://docs.particle.pro/api-reference/podcast-rankings/list-current-rankings-for-a-podcast.md): Returns every live chart appearance of the given podcast — across sources, countries, and categories. Identify the podcast by slug (e.g., 'the-daily') or ID.
+- [List podcast rankings](https://docs.particle.pro/api-reference/podcast-rankings/list-podcast-rankings.md): Returns chart entries from the live ranking snapshot. The most common call needs no parameters — it returns the first page (default 25, max 100 per request) of the US Apple Top Podcasts overall chart, ordered by rank ascending. Charts run to rank 200; paginate with `cursor` to fetch the rest. Narrow…
+- [List ranking categories](https://docs.particle.pro/api-reference/podcast-rankings/list-ranking-categories.md): Returns every category currently represented in the rankings dataset, optionally restricted to a single source. For Apple sub-categories the response includes `parent_slug` so clients can render the category hierarchy.
+- [List ranking countries](https://docs.particle.pro/api-reference/podcast-rankings/list-ranking-countries.md): Returns every country currently represented in the rankings dataset, optionally restricted to a single source. Each entry carries the human-readable country name (when known) and a count of distinct chart slots.
+- [List ranking movers](https://docs.particle.pro/api-reference/podcast-rankings/list-ranking-movers.md): Returns the chart entries whose rank changed between the live snapshot and the comparison snapshot `window_days` ago. Use the `change` filter to focus on debuts (`new`), departures (`exit`), or directional moves (`up` / `down`). Stable rows are excluded.
+- [List ranking sources](https://docs.particle.pro/api-reference/podcast-rankings/list-ranking-sources.md): Returns each (source, chart_type) pair available on this API together with row counts and freshness for the live snapshot.
+- [Summarize a podcast's chart presence](https://docs.particle.pro/api-reference/podcast-rankings/summarize-a-podcasts-chart-presence.md): Returns a one-call aggregate of the podcast's current chart presence: the number of distinct chart slots, sources, countries, and categories it appears on, plus the single best (lowest-numbered) rank it currently holds and a per-source breakdown.
+- [Search podcast dialogue for entity mentions](https://docs.particle.pro/api-reference/podcast-search/search-podcast-dialogue-for-entity-mentions.md): Returns every line of dialogue that mentions a person or company, grouped by episode and ordered by recency. Each result is one episode plus all of that episode's mention windows — a window is a contiguous range of dialogue containing the mention with `context_lines` of surrounding context, and line…
+- [Search podcasts by content](https://docs.particle.pro/api-reference/podcast-search/search-podcasts-by-content.md): Search the podcast catalog by what is said in episodes — by meaning (`semantic_search`), by exact phrase (`keyword_search`), or both at once (hybrid). Each result is a segment of an episode, returned with bounded preview windows of dialogue and any highlight clips that overlap the segment.
+- [Get a segment](https://docs.particle.pro/api-reference/podcast-segments/get-a-segment.md): Returns a single segment by its unique identifier.
+- [List segments](https://docs.particle.pro/api-reference/podcast-segments/list-segments.md): Returns AI-identified segments across podcast episodes. Segments represent structural sections like topic discussions, interviews, ads, etc. At least one of `episode_id`, `podcast_id`, or `type` is required — this endpoint does not return a global feed.
+- [List segments for an episode](https://docs.particle.pro/api-reference/podcast-segments/list-segments-for-an-episode.md): Returns the AI-identified segments for a specific episode in chronological order.
+- [Get clip transcript](https://docs.particle.pro/api-reference/podcast-transcripts/get-clip-transcript.md): Returns the diarized transcript for a specific clip.
+- [Get entity mentions in transcript](https://docs.particle.pro/api-reference/podcast-transcripts/get-entity-mentions-in-transcript.md): Finds all mentions of a specific entity within an episode's transcript and returns each mention with surrounding dialogue context. Useful for seeing exactly where and how an entity is discussed.
+- [Get episode transcript](https://docs.particle.pro/api-reference/podcast-transcripts/get-episode-transcript.md): Returns the diarized transcript for a podcast episode. Supports dialogue (speaker-attributed lines), plain text, and SRT subtitle formats. Optionally filter by speaker or time range.
+- [Get segment transcript](https://docs.particle.pro/api-reference/podcast-transcripts/get-segment-transcript.md): Returns the diarized transcript for a specific segment.
+- [Get word-level transcript](https://docs.particle.pro/api-reference/podcast-transcripts/get-word-level-transcript.md): Returns the word-level timestamped transcript for a podcast episode. Use start/end parameters to extract a time range for long episodes.
+- [Get a podcast](https://docs.particle.pro/api-reference/podcasts/get-a-podcast.md): Returns a single podcast by slug (e.g., 'all-in') or ID. Slugs are human-readable identifiers included in every podcast response.
+- [Get a podcast's latest bias analysis](https://docs.particle.pro/api-reference/podcasts/get-a-podcasts-latest-bias-analysis.md): Returns the most recent automated political bias analysis for a podcast, including the agent's reasoning, transcript evidence, web research evidence, and the sample episodes that informed the rating. Returns 404 when the podcast is not found or when it has not yet been analyzed.
+- [Get a podcast's latest brand suitability assessment](https://docs.particle.pro/api-reference/podcasts/get-a-podcasts-latest-brand-suitability-assessment.md): Returns the most recent brand suitability assessment for a podcast against the IAB Tech Lab Content Taxonomy 3.x Brand Safety & Suitability Framework (the industry-standard 12-category taxonomy formerly stewarded by GARM): overall tier, per-category prevalence and treatment, evidence excerpts from s…
+- [Get podcast advertising profile](https://docs.particle.pro/api-reference/podcasts/get-podcast-advertising-profile.md): Returns advertising intelligence for a specific podcast, including aggregate stats, read type breakdown, and top sponsors. Identify the podcast by slug (e.g., 'all-in') or ID.
+- [List a podcast's third-party platform presences](https://docs.particle.pro/api-reference/podcasts/list-a-podcasts-third-party-platform-presences.md): Returns every third-party platform on which the podcast has a known presence — podcast directories (Apple Podcasts, Spotify, Castbox, …), social profiles (X, Instagram, TikTok, …), video channels (YouTube), and the publisher's own website. Each entry includes the platform-native identifier, a resolv…
+- [List entity mentions in a podcast](https://docs.particle.pro/api-reference/podcasts/list-entity-mentions-in-a-podcast.md): Returns episodes where a specific entity appears within a podcast, ordered by most recent. Each result includes the episode, salience score, occurrence count, and speaker roles. Requires entity_id or company_id.
+- [List episodes for a podcast](https://docs.particle.pro/api-reference/podcasts/list-episodes-for-a-podcast.md): Returns a paginated list of episodes for a specific podcast, identified by slug (e.g., 'all-in') or ID.
+- [List podcast topics](https://docs.particle.pro/api-reference/podcasts/list-podcast-topics.md): Returns the top-level topics covered across all podcasts, sorted by the number of podcasts covering each topic.
+- [List podcasts](https://docs.particle.pro/api-reference/podcasts/list-podcasts.md): Returns a paginated list of podcasts, optionally filtered by text search, topic, or language.
+- [Get a topic](https://docs.particle.pro/api-reference/topics/get-a-topic.md): Returns a single topic by its unique identifier, including ancestors and direct children.
+- [List topics](https://docs.particle.pro/api-reference/topics/list-topics.md): Returns the hierarchical topic taxonomy. Use parent_id to navigate the tree.
+- [Companies](https://docs.particle.pro/companies/overview.md): Cross-referenced company profiles with SEC, Wikidata, ticker, domain, and knowledge-graph identifiers.
+- [Products](https://docs.particle.pro/companies/products.md): Three-level product hierarchies with lifecycle status.
+- [Concepts](https://docs.particle.pro/concepts.md): Cross-cutting conventions: IDs, pagination, errors, pricing weight, and choosing the right endpoint.
+- [api_key_required](https://docs.particle.pro/errors/api_key_required.md): Valid API key required
+- [auth_required](https://docs.particle.pro/errors/auth_required.md): Authentication required
+- [bad_request](https://docs.particle.pro/errors/bad_request.md): Malformed request
+- [billing_info_required](https://docs.particle.pro/errors/billing_info_required.md): Billing information is required for paid plans
+- [conflict](https://docs.particle.pro/errors/conflict.md): Request conflicts with current state
+- [credits_depleted](https://docs.particle.pro/errors/credits_depleted.md): Credit allocation exhausted for this billing period
+- [email_exists](https://docs.particle.pro/errors/email_exists.md): Account already exists with this email
+- [email_verification_required](https://docs.particle.pro/errors/email_verification_required.md): Email verification is required to complete registration
+- [feature_check_failed](https://docs.particle.pro/errors/feature_check_failed.md): Feature availability check failed
+- [forbidden](https://docs.particle.pro/errors/forbidden.md): Access denied
+- [internal_error](https://docs.particle.pro/errors/internal_error.md): Unexpected server error
+- [invite_expired](https://docs.particle.pro/errors/invite_expired.md): Organization invitation has expired
+- [no_active_plan](https://docs.particle.pro/errors/no_active_plan.md): No active billing plan
+- [no_active_subscription](https://docs.particle.pro/errors/no_active_subscription.md): No active subscription for spend limit configuration
+- [not_a_member](https://docs.particle.pro/errors/not_a_member.md): Not a member of the organization
+- [not_found](https://docs.particle.pro/errors/not_found.md): Resource not found
+- [notification_email_in_use](https://docs.particle.pro/errors/notification_email_in_use.md): The notification email is still referenced by one or more monitors
+- [Error reference](https://docs.particle.pro/errors/overview.md): Structured error responses and how to handle them
+- [payment_past_due](https://docs.particle.pro/errors/payment_past_due.md): Payment is past due
+- [plan_does_not_support_overage_usage](https://docs.particle.pro/errors/plan_does_not_support_overage_usage.md): The current plan does not support overage usage configuration
+- [plan_not_selected](https://docs.particle.pro/errors/plan_not_selected.md): Organization has no active plan selected
+- [plan_required](https://docs.particle.pro/errors/plan_required.md): A billing plan is required to create projects
+- [pro_required](https://docs.particle.pro/errors/pro_required.md): Pro subscription required
+- [rate_limit_exceeded](https://docs.particle.pro/errors/rate_limit_exceeded.md): API rate limit exceeded
+- [social_login_only](https://docs.particle.pro/errors/social_login_only.md): Account uses social login
+- [spend_limit_exceeded](https://docs.particle.pro/errors/spend_limit_exceeded.md): Monthly spend limit exceeded
+- [subscription_already_canceled](https://docs.particle.pro/errors/subscription_already_canceled.md): Subscription is already canceled
+- [subscription_canceled](https://docs.particle.pro/errors/subscription_canceled.md): Subscription has been canceled
+- [subscription_inactive](https://docs.particle.pro/errors/subscription_inactive.md): Subscription is not active
+- [subscription_not_found](https://docs.particle.pro/errors/subscription_not_found.md): Billing subscription not found
+- [subscription_suspended](https://docs.particle.pro/errors/subscription_suspended.md): Subscription suspended due to non-payment
+- [token_expired](https://docs.particle.pro/errors/token_expired.md): Reset token has expired or already been used
+- [token_invalid](https://docs.particle.pro/errors/token_invalid.md): Invalid or expired reset token
+- [validation_error](https://docs.particle.pro/errors/validation_error.md): Request body or parameters failed validation
+- [Particle API](https://docs.particle.pro/index.md): Inside every podcast: transcripts, speakers, entities, sponsors, and a knowledge graph that connects people and companies across episodes.
+- [Entities](https://docs.particle.pro/knowledge-graph/entities.md): People, organizations, places, and concepts — the connective tissue across audio and structured data.
+- [Topics](https://docs.particle.pro/knowledge-graph/topics.md): Hierarchical topic taxonomy used to classify episodes.
+- [Authentication](https://docs.particle.pro/mcp/authentication.md): OAuth 2.1 end-to-end — discovery, dynamic client registration, authorization code with PKCE, refresh, revocation, and the audience-binding rules the resource server enforces.
+- [Errors](https://docs.particle.pro/mcp/errors.md): How tool errors surface in MCP responses, and how the REST error catalog maps onto them.
+- [Particle Pro MCP server](https://docs.particle.pro/mcp/overview.md): An OAuth-secured MCP server that exposes Particle's podcast, knowledge graph, company, and advertising surfaces as tool calls for AI agents.
+- [Quickstart](https://docs.particle.pro/mcp/quickstart.md): Connect the Particle Pro MCP server to Claude Code, Claude Desktop, Cursor, VS Code, or a custom MCP client.
+- [advertising/get_company_ad_presence](https://docs.particle.pro/mcp/tools/advertising/get-company-ad-presence.md): Sponsor-side ad analytics for one company — totals, podcast/episode reach, host-read vs pre-recorded, and recent placements.
+- [advertising/get_podcast_sponsors](https://docs.particle.pro/mcp/tools/advertising/get-podcast-sponsors.md): Top sponsors for a single podcast plus aggregate ad stats — totals, unique sponsors, episodes with ads, host-read vs pre-recorded.
+- [advertising/sponsor_leaderboard](https://docs.particle.pro/mcp/tools/advertising/sponsor-leaderboard.md): Ranked list of the most-active sponsors across the podcast catalog, by ad count, podcast reach, or episode reach.
+- [companies/get_company](https://docs.particle.pro/mcp/tools/companies/get-company.md): Bundled profile for one company — identifiers, optional product hierarchy, optional competitor list.
+- [companies/resolve_company](https://docs.particle.pro/mcp/tools/companies/resolve-company.md): Resolve a company by free-text name, ticker, SEC CIK, Wikidata QID, or domain.
+- [entities/browse_topics](https://docs.particle.pro/mcp/tools/entities/browse-topics.md): Navigate the topic taxonomy — without `parent_slug` returns top-level roots; with it returns direct children.
+- [entities/resolve_entity](https://docs.particle.pro/mcp/tools/entities/resolve-entity.md): Resolve a person, organization, place, or company by free-text name to its canonical slug.
+- [Tool reference](https://docs.particle.pro/mcp/tools/overview.md): Every tool the Particle Pro MCP server exposes, grouped by namespace.
+- [podcasts/get_entity_mentions](https://docs.particle.pro/mcp/tools/podcasts/get-entity-mentions.md): Find dialogue lines where a specific person or company is named in podcast transcripts.
+- [podcasts/get_episode](https://docs.particle.pro/mcp/tools/podcasts/get-episode.md): Bundled overview of one episode — speakers, top entities, topics, segment counts, and optional transcript.
+- [podcasts/list_clips](https://docs.particle.pro/mcp/tools/podcasts/list-clips.md): Engagement-ranked highlight clips across the catalog with direct MP3 URLs.
+- [podcasts/list_episodes](https://docs.particle.pro/mcp/tools/podcasts/list-episodes.md): Filter-driven episode discovery across the catalog — by podcast, entity, company, language, date range, duration, or transcript availability.
+- [podcasts/resolve_podcast](https://docs.particle.pro/mcp/tools/podcasts/resolve-podcast.md): Find a podcast by free-text title or exact slug; returns slug, episode count, bias, recurring speakers, and optional external platform links and recent episodes.
+- [podcasts/search_dialogue](https://docs.particle.pro/mcp/tools/podcasts/search-dialogue.md): Semantic, keyword, or hybrid search over podcast dialogue with bounded transcript windows and overlapping clips.
+- [Advertising](https://docs.particle.pro/podcasts/advertising.md): Sponsor analytics across the podcast catalog: leaderboards, per-company presence, and co-occurrence.
+- [Episodes](https://docs.particle.pro/podcasts/episodes.md): Discover and filter episodes across the catalog, with rich per-episode sub-resources.
+- [External links](https://docs.particle.pro/podcasts/external-links.md): Every third-party platform on which a podcast has a presence — directories, social profiles, video channels, websites — with resolved URLs and per-platform metadata.
+- [Mentions](https://docs.particle.pro/podcasts/mentions.md): Every line of dialogue where a person or company is named, grouped by episode. The right endpoint for read-everything-about-X workflows.
+- [Podcasts](https://docs.particle.pro/podcasts/overview.md): What's inside every episode — transcripts, speakers, segments, clips, sponsors, and bias.
+- [Publishers](https://docs.particle.pro/podcasts/publishers.md): Browse the organizations behind the podcasts — Goalhanger, iHeartPodcasts, BBC Radio 4 — and pivot from a publisher to its full catalog.
+- [Rankings](https://docs.particle.pro/podcasts/rankings.md): Browse the live Apple and Spotify podcast charts — top podcasts by country and category, per-podcast chart presence, historical snapshots, and trending movers.
+- [Search](https://docs.particle.pro/podcasts/search.md): Search the podcast catalog by what is said in episodes — by meaning, by exact phrase, or both. For 'every line about a person or company', see Mentions.
+- [Segments & clips](https://docs.particle.pro/podcasts/segments-and-clips.md): AI-identified structural sections of every episode and engagement-scored highlight clips.
+- [Brand Suitability](https://docs.particle.pro/podcasts/suitability.md): Industry-standard content risk and advertiser-fit assessment for podcasts: per-category prevalence and treatment, evidence excerpts, and a deterministic trend across analyses.
+- [Transcripts](https://docs.particle.pro/podcasts/transcripts.md): Diarized dialogue, word-level timestamps, entity mentions in context, and SRT export.
+- [Quickstart](https://docs.particle.pro/quickstart.md): Trace one person across podcasts, dialogue, and companies in five minutes.
+
+## OpenAPI Specs
+
+- [openapi](https://docs.particle.pro/openapi.json)

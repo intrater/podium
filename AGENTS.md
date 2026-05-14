@@ -53,6 +53,8 @@ Podium is a daily web-app digest of 49ers podcast moments. v1 ships single-user 
 
 - `docs/plans/2026-05-09-001-feat-podium-v1-49ers-digest-plan.md` — the active plan
 - `docs/brainstorms/podium-v1-requirements.md` — origin requirements
+- `docs/reference/particle-api.md` — vendored snapshot of every Particle endpoint (~7k lines; grep this before WebFetch'ing the live docs)
+- `docs/reference/particle-api-index.md` — compact endpoint index, scan first to find the right endpoint
 - `docs/solutions/2026-05-09-particle-api-shape.md` — Particle response shapes verified against the docs
 - `docs/solutions/2026-05-09-particle-cost-estimate.md` — cost model and budget framework
 
