@@ -56,6 +56,8 @@ export interface DailyIngestionDeps extends PipelineDeps {
    * the manual route's `?limit=N` query param. Absent = no cap.
    */
   maxEpisodes?: number;
+  /** Override discovery mode for tests. Defaults to env.INGEST_DISCOVERY_MODE. */
+  discoveryMode?: "mentions" | "list-episodes";
   /** Inject `now()` for tests. */
   now?: () => Date;
 }
@@ -77,6 +79,7 @@ export async function runDailyIngestion(
   const runId = crypto.randomUUID();
   const devMode = deps.devMode ?? env.INGEST_DEV_MODE;
   const forceReprocess = deps.forceReprocess ?? env.INGEST_FORCE_REPROCESS;
+  const discoveryMode = deps.discoveryMode ?? env.INGEST_DISCOVERY_MODE;
   const runKind = deps.runKind ?? "manual_run";
 
   // 1. Load the resolved-id catalog. Skip rows whose particle_id is null —
@@ -188,6 +191,7 @@ export async function runDailyIngestion(
       runId,
       forceReprocess,
       maxEpisodes: deps.maxEpisodes,
+      discoveryMode,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

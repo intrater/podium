@@ -317,6 +317,44 @@ describe("extractEpisodeMoments — anchor id validation", () => {
   });
 });
 
+// ── empty anchors (list-episodes discovery, U4) ───────────────────────
+
+describe("extractEpisodeMoments — empty anchors (list-episodes mode)", () => {
+  it("accepts moments with free-form particle_segment_id when anchors are empty", async () => {
+    const recorded: RecordedCall[] = [];
+    const freeFormMoment = { ...VALID_MOMENT, particle_segment_id: "auto-735-770" };
+    const { messages } = makeSdkStub(
+      toolUseMessage({ moments: [freeFormMoment], episode_rollup: "Rollup." }),
+    );
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+    });
+
+    const out = await extractEpisodeMoments(client, { ...baseInput, anchors: [] });
+    expect(out).not.toBeNull();
+    expect(out!.moments).toHaveLength(1);
+    expect(out!.moments[0].particle_segment_id).toBe("auto-735-770");
+  });
+
+  it("builds the user message without an Anchors block when anchors are empty", async () => {
+    const recorded: RecordedCall[] = [];
+    const { messages, create } = makeSdkStub(
+      toolUseMessage({ moments: [], episode_rollup: "" }),
+    );
+    const client = createAnthropicClient({
+      supabase: makeSupabaseStub(recorded) as unknown as Parameters<typeof createAnthropicClient>[0]["supabase"],
+      sdk: { messages } as unknown as Parameters<typeof createAnthropicClient>[0]["sdk"],
+    });
+
+    await extractEpisodeMoments(client, { ...baseInput, anchors: [] });
+    const callArgs = create.mock.calls[0][0] as { messages: Array<{ content: string }> };
+    const userContent = callArgs.messages[0].content;
+    expect(userContent).not.toContain("Anchors (Particle-flagged");
+    expect(userContent).toContain("No pre-flagged anchors");
+  });
+});
+
 // ── schema failure recovery ───────────────────────────────────────────
 
 describe("extractEpisodeMoments — schema failure recovery", () => {

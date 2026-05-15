@@ -545,6 +545,36 @@ describe("Particle client — searchByContent discriminated union", () => {
   });
 });
 
+// ─── listEpisodes filter expansion (U4) ──────────────────────────────
+
+describe("Particle client — listEpisodes filters", () => {
+  it("forwards entityId as entity_id when no podcastId is set", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { data: [], has_more: false }));
+    const { particle } = makeClient(fetcher, recorded);
+    await particle.listEpisodes({ entityId: "ent_purdy", limit: 25 });
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toContain("entity_id=ent_purdy");
+    expect(url).toContain("limit=25");
+    expect(url).not.toContain("podcast_id");
+    expect(recorded[0].endpoint).toBe("podcasts.episodes.list");
+    expect(recorded[0].tier).toBe("standard");
+  });
+
+  it("forwards companyId as company_id", async () => {
+    const recorded: RecordedCall[] = [];
+    const fetcher: Fetcher = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { data: [], has_more: false }));
+    const { particle } = makeClient(fetcher, recorded);
+    await particle.listEpisodes({ companyId: "co_x" });
+    const url = (fetcher as unknown as { mock: { calls: [string][] } }).mock.calls[0][0];
+    expect(url).toContain("company_id=co_x");
+  });
+});
+
 // ─── Cost dry-run ────────────────────────────────────────────────────
 
 describe("estimateCost — dry-run helper", () => {

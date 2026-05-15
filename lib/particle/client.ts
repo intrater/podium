@@ -106,8 +106,17 @@ export interface ListPodcastsOpts {
 }
 
 export interface ListEpisodesOpts {
-  /** Particle podcast ID (NOT slug — use `listPodcasts` to resolve). */
-  podcastId: string;
+  /** Particle podcast ID or slug. Optional when filtering by `entityId`. */
+  podcastId?: string;
+  /**
+   * Particle entity ID (or slug) — narrow to episodes where this entity
+   * appears. Standard tier, ~10× cheaper than mentions; the U4 list-episodes
+   * discovery mode uses this. At least one of podcastId, entityId, or
+   * companyId must be set in practice.
+   */
+  entityId?: string;
+  /** Particle company ID or domain. */
+  companyId?: string;
   publishedAfter?: string;
   publishedBefore?: string;
   cursor?: string;
@@ -238,6 +247,8 @@ export function createParticleClient(config: ParticleClientOptions): ParticleCli
     async listEpisodes(opts) {
       const qs = buildQuery({
         podcast_id: opts.podcastId,
+        entity_id: opts.entityId,
+        company_id: opts.companyId,
         published_after: opts.publishedAfter,
         published_before: opts.publishedBefore,
         cursor: opts.cursor,

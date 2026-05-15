@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AnthropicClient } from "@/lib/anthropic/client";
-import type { EpisodeMoment } from "@/lib/anthropic/types";
+import { EPISODE_EXTRACTION_PROMPT_VERSION, type EpisodeMoment } from "@/lib/anthropic/types";
 import { runIngestPipeline } from "@/lib/ingest/pipeline";
 import type { ParticleClient } from "@/lib/particle/client";
 import type {
@@ -205,6 +205,12 @@ function makeParticleStub(
   responses: {
     mentions?: Record<string, ParticleMentionResult[]>;
     search?: Record<string, ParticleSearchResult[]>;
+    /**
+     * Per-entity-id list-episodes responses, used by the U4 list-episodes
+     * discovery mode. The pipeline calls `listEpisodes({ entityId })` once
+     * per universe entity and dedupes overlapping results.
+     */
+    episodes?: Record<string, import("@/lib/particle/types").ParticleEpisode[]>;
     transcripts?: Record<string, { text: string } | { lines: ParticleTranscriptLine[] }>;
     /**
      * Per-episode ad windows. Default: no ads.
@@ -260,7 +266,10 @@ function makeParticleStub(
     },
     listEntities: async () => ({ data: [], has_more: false }),
     listPodcasts: async () => ({ data: [], has_more: false }),
-    listEpisodes: async () => ({ data: [], has_more: false }),
+    listEpisodes: async ({ entityId }) => {
+      const data = (entityId && responses.episodes?.[entityId]) ?? [];
+      return { data, has_more: false };
+    },
     getClip: async () => {
       throw new Error("not used");
     },
@@ -563,10 +572,12 @@ describe("runIngestPipeline — prompt versioning (U5)", () => {
     // Segment row was upserted (existing row updated, not duplicated).
     const segmentRows = store.segments;
     expect(segmentRows).toHaveLength(1);
-    expect((segmentRows[0] as { prompt_version: string }).prompt_version).toBe("v1");
+    expect((segmentRows[0] as { prompt_version: string }).prompt_version).toBe(
+      EPISODE_EXTRACTION_PROMPT_VERSION,
+    );
   });
 
-  it("writes prompt_version='v1' on every new segment row", async () => {
+  it("writes the current prompt_version on every new segment row", async () => {
     const { client, store } = makeSupabaseStub({
       team: teamFixture,
       universe: universeFixture,
@@ -621,7 +632,9 @@ describe("runIngestPipeline — prompt versioning (U5)", () => {
       },
     );
     expect(store.segments).toHaveLength(1);
-    expect((store.segments[0] as { prompt_version: string }).prompt_version).toBe("v1");
+    expect((store.segments[0] as { prompt_version: string }).prompt_version).toBe(
+      EPISODE_EXTRACTION_PROMPT_VERSION,
+    );
   });
 });
 
@@ -638,7 +651,7 @@ describe("runIngestPipeline — cross-run dedupe", () => {
           id: "existing_seg",
           particle_segment_id: "seg_existing",
           episode_id: "ep_existing",
-          prompt_version: "v1",
+          prompt_version: EPISODE_EXTRACTION_PROMPT_VERSION,
         },
       ],
     });
@@ -958,5 +971,234 @@ describe("runIngestPipeline — ad-stripping", () => {
     // 2 entity-mention calls (one per universe entity) + 1 storyline search +
     // 1 transcript + 1 ads = 5 attempted particle calls.
     expect(out.particleCallsAttempted).toBe(5);
+  });
+});
+
+// ─── List-episodes discovery (U4) ───────────────────────────────────
+
+describe("runIngestPipeline — list-episodes discovery mode", () => {
+  it("discovers episodes via listEpisodes(entityId), skips mentions/search, persists synthetic segment IDs", async () => {
+    const { client, store } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    });
+
+    const episode = {
+      id: "ep_le_1",
+      title: "List-Episodes",
+      podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+      published_at: "2026-05-09T12:00:00Z",
+      duration_seconds: 3600,
+    };
+    const particle = makeParticleStub({
+      // Mentions/search are populated to prove they're skipped.
+      mentions: {
+        ent_purdy: [
+          {
+            episode: { id: "ep_should_not_appear", title: "Skip me", podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" } },
+            mention_count: 1,
+            windows: [{ segment: { id: "seg_skip" }, start_seconds: 0, end_seconds: 30 }],
+          },
+        ],
+      },
+      episodes: { ent_purdy: [episode], ent_warner: [episode] },
+      transcripts: { ep_le_1: { text: "Brock Purdy is comfortable in the pocket." } },
+    });
+
+    const anthropic = makeAnthropicStub({
+      ep_le_1: {
+        moments: [
+          {
+            // Claude returns any unique string per moment; pipeline overrides.
+            particle_segment_id: "auto-100-200",
+            start_seconds: 100,
+            end_seconds: 200,
+            summary: "Purdy summary.",
+            pull_quotes: [],
+            bullets: ["a", "b", "c"],
+            surfacing_entities: ["brock-purdy"],
+          },
+        ],
+        episode_rollup: "Rollup.",
+      },
+    });
+
+    const out = await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+        discoveryMode: "list-episodes",
+      },
+    );
+
+    expect(out.cardsPersisted).toBe(1);
+    expect(store.episodes).toHaveLength(1);
+    expect((store.episodes[0] as { particle_episode_id: string }).particle_episode_id).toBe("ep_le_1");
+    expect(store.segments).toHaveLength(1);
+    const persisted = store.segments[0] as { particle_segment_id: string; match_source: string };
+    // Refined coords override Claude's free-form ID.
+    expect(persisted.particle_segment_id).toBe("ep_le_1:100-200");
+    expect(persisted.match_source).toBe("entity");
+  });
+
+  it("dedupes episodes returned for multiple entities into one Claude call per episode", async () => {
+    const { client } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    });
+    const episode = {
+      id: "ep_dupe",
+      title: "Shared",
+      podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+      published_at: "2026-05-09T12:00:00Z",
+      duration_seconds: 1800,
+    };
+    const particle = makeParticleStub({
+      episodes: { ent_purdy: [episode], ent_warner: [episode] },
+      transcripts: { ep_dupe: { text: "Shared episode content." } },
+    });
+    const anthropic = makeAnthropicStub({
+      ep_dupe: {
+        moments: [
+          {
+            particle_segment_id: "x",
+            start_seconds: 0,
+            end_seconds: 60,
+            summary: "Summary.",
+            pull_quotes: [],
+            bullets: ["a", "b", "c"],
+            surfacing_entities: ["brock-purdy"],
+          },
+        ],
+        episode_rollup: "Rollup.",
+      },
+    });
+
+    const out = await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+        discoveryMode: "list-episodes",
+      },
+    );
+
+    // Two entities returned the same episode — dedupe collapses to one
+    // anthropic call (and one transcript fetch).
+    expect(out.anthropicCallsAttempted).toBe(1);
+  });
+
+  it("skips entities whose listEpisodes returns zero results without crashing", async () => {
+    const { client } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    });
+    const particle = makeParticleStub({ episodes: {} });
+    const anthropic = makeAnthropicStub({});
+
+    const out = await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+        discoveryMode: "list-episodes",
+      },
+    );
+
+    expect(out.episodesPersisted).toBe(0);
+    expect(out.anthropicCallsAttempted).toBe(0);
+    // 2 listEpisodes calls (one per entity), zero downstream.
+    expect(out.particleCallsAttempted).toBe(2);
+  });
+
+  it("idempotency: re-running produces the same row count via synthetic segment ID collisions", async () => {
+    const initialState = {
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    };
+    const episode = {
+      id: "ep_idem",
+      title: "Idempotent",
+      podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+      published_at: "2026-05-09T12:00:00Z",
+      duration_seconds: 3600,
+    };
+    const fixture: ExtractionFixture = {
+      moments: [
+        {
+          particle_segment_id: "auto-50-110",
+          start_seconds: 50,
+          end_seconds: 110,
+          summary: "Summary.",
+          pull_quotes: [],
+          bullets: ["a", "b", "c"],
+          surfacing_entities: ["brock-purdy"],
+        },
+      ],
+      episode_rollup: "Rollup.",
+    };
+
+    // First run.
+    const first = makeSupabaseStub(initialState);
+    const particle1 = makeParticleStub({
+      episodes: { ent_purdy: [episode], ent_warner: [episode] },
+      transcripts: { ep_idem: { text: "Brock Purdy details." } },
+    });
+    const anthropic1 = makeAnthropicStub({ ep_idem: fixture });
+    await runIngestPipeline(
+      { supabase: first.client, particle: particle1, anthropic: anthropic1, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+        discoveryMode: "list-episodes",
+        forceReprocess: true,
+      },
+    );
+    expect(first.store.segments).toHaveLength(1);
+    const firstId = (first.store.segments[0] as { particle_segment_id: string }).particle_segment_id;
+
+    // Second run with the prior segment seeded — synthetic ID collides
+    // and the cross-run dedupe filter skips the entity entirely.
+    const second = makeSupabaseStub({
+      ...initialState,
+      segments: [
+        {
+          id: "seg_seed",
+          particle_segment_id: firstId,
+          episode_id: "ep_idem",
+          prompt_version: EPISODE_EXTRACTION_PROMPT_VERSION,
+        },
+      ],
+    });
+    // The list-episodes path normalises into ${id}:0-${duration}; the
+    // segment seeded above carries the post-extraction refined ID. Re-run
+    // therefore re-invokes Claude (no dedupe match on the synthetic
+    // full-episode id) and the refined moment ID upserts into the
+    // existing row — net segment count stays 1.
+    const particle2 = makeParticleStub({
+      episodes: { ent_purdy: [episode], ent_warner: [episode] },
+      transcripts: { ep_idem: { text: "Brock Purdy details." } },
+    });
+    const anthropic2 = makeAnthropicStub({ ep_idem: fixture });
+    await runIngestPipeline(
+      { supabase: second.client, particle: particle2, anthropic: anthropic2, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+        discoveryMode: "list-episodes",
+      },
+    );
+    expect(second.store.segments).toHaveLength(1);
+    expect((second.store.segments[0] as { particle_segment_id: string }).particle_segment_id).toBe(firstId);
   });
 });

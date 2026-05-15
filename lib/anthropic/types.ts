@@ -169,7 +169,7 @@ export const ANTHROPIC_MODEL = "claude-haiku-4-5" as const;
  * include the date or commit SHA — those drift with formatting
  * changes that don't actually need re-extraction.
  */
-export const EPISODE_EXTRACTION_PROMPT_VERSION = "v1" as const;
+export const EPISODE_EXTRACTION_PROMPT_VERSION = "v2" as const;
 
 export function computeCallCost(usage: AnthropicUsage): number {
   const baseInput = usage.inputTokens * ANTHROPIC_HAIKU_PRICE_USD.inputPerToken;

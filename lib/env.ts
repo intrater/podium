@@ -40,6 +40,16 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    /**
+     * Selects the candidate-episode discovery path the daily pipeline
+     * uses. "mentions" (default) calls /v1/podcasts/mentions per entity
+     * (premium tier). "list-episodes" calls /v1/podcasts/episodes per
+     * entity (standard tier, ~10× cheaper) and lets Claude find moments
+     * from the full transcript instead of mention windows. A/B comparison
+     * is operator-driven across two manual runs; see
+     * docs/plans/2026-05-14-001-refactor-particle-api-optimizations-plan.md.
+     */
+    INGEST_DISCOVERY_MODE: z.enum(["mentions", "list-episodes"]).default("mentions"),
   },
 
   /**
@@ -66,6 +76,7 @@ export const env = createEnv({
     PODIUM_USER_ID: process.env.PODIUM_USER_ID,
     INGEST_DEV_MODE: process.env.INGEST_DEV_MODE,
     INGEST_FORCE_REPROCESS: process.env.INGEST_FORCE_REPROCESS,
+    INGEST_DISCOVERY_MODE: process.env.INGEST_DISCOVERY_MODE,
   },
 
   /**
