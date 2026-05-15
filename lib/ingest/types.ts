@@ -7,6 +7,14 @@
  * shapes so a single integration test fixture can drive either runtime.
  */
 
+/**
+ * Candidate-episode discovery strategy. "mentions" walks
+ * /v1/podcasts/mentions per entity (premium). "list-episodes" walks
+ * /v1/podcasts/episodes per entity (standard) and asks Claude to find
+ * moments freely from the full transcript.
+ */
+export type DiscoveryMode = "mentions" | "list-episodes";
+
 export interface IngestPipelineInput {
   teamId: string;
   /**
@@ -44,6 +52,8 @@ export interface IngestPipelineInput {
    * is plenty for content-shape sign-off). Absent = no cap.
    */
   maxEpisodes?: number;
+  /** Discovery strategy; defaults to "mentions". See `DiscoveryMode`. */
+  discoveryMode?: DiscoveryMode;
 }
 
 export interface IngestPipelineOutput {

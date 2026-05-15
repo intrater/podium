@@ -13,7 +13,11 @@ import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { podcasts } from "@/config/podcasts";
-import { createSeedParticleResolver, type SeedParticleResolver } from "@/lib/seed/particle-resolver";
+import {
+  createSeedParticleResolver,
+  SeedResolverHttpError,
+  type SeedParticleResolver,
+} from "@/lib/seed/particle-resolver";
 import { runSeed, type SeedResult } from "@/lib/seed/index";
 import { niners } from "@/lib/universes/49ers";
 
@@ -31,8 +35,8 @@ const haveEnv = LIVE_TESTS_ENABLED && Boolean(SUPABASE_URL && SERVICE_ROLE_KEY &
 
 function makeMockParticleResolver(): SeedParticleResolver {
   // Canned `id_<slug>` IDs for every entry in the live config. The mock
-  // matches the SeedParticleResolver surface (listPodcasts + listEntities
-  // only) — exactly what the seed runner uses.
+  // matches the SeedParticleResolver surface — the seed runner now uses
+  // direct slug GETs; the list methods stay for legacy callers/tests.
   return {
     listPodcasts: async ({ q }) => {
       const slug = podcasts.find((p) => p.name === q)?.particleSlug;
@@ -40,10 +44,6 @@ function makeMockParticleResolver(): SeedParticleResolver {
       return { data: [{ id: `id_${slug}`, title: `Mock ${slug}`, slug }], has_more: false };
     },
     listEntities: async ({ q }) => {
-      // Match against any slug whose reconstruction (any of the three
-      // variants the resolver tries) equals the query. The real call
-      // succeeds on variant 1 for most slugs and falls back to variant
-      // 2 for hyphenated surnames; the mock supports both.
       const candidates = [
         niners.entities.find((s) => s.replace(/-/g, " ") === q),
         niners.entities.find((s) => s.replace(/-/, " ") === q),
@@ -55,6 +55,17 @@ function makeMockParticleResolver(): SeedParticleResolver {
         data: [{ id: `id_${slug}`, slug, name: slug.replace(/-/g, " ") }],
         has_more: false,
       };
+    },
+    getPodcastBySlug: async (slug) => {
+      const known = podcasts.find((p) => p.particleSlug === slug);
+      if (!known) throw new SeedResolverHttpError(`/v1/podcasts/${slug}`, 404, "not found");
+      return { id: `id_${slug}`, title: `Mock ${slug}`, slug };
+    },
+    getEntityBySlug: async (slug) => {
+      if (!niners.entities.includes(slug)) {
+        throw new SeedResolverHttpError(`/v1/entities/${slug}`, 404, "not found");
+      }
+      return { id: `id_${slug}`, slug, name: slug.replace(/-/g, " ") };
     },
   };
 }

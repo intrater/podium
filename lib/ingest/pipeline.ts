@@ -25,8 +25,8 @@ import type {
   ParticleSearchResult,
   ParticleSegment,
   ParticleEpisode,
+  ParticleEpisodeAd,
   ParticleMentionResult,
-  ParticleEpisodeTranscript,
   ParticleTranscriptLine,
 } from "@/lib/particle/types";
 import { paginateAll } from "@/lib/particle/client";
@@ -84,56 +84,87 @@ export async function runIngestPipeline(
   // 1. Load the team's universe (slugs + IDs cached at seed time).
   const team = await loadTeamContext(deps, input.teamId);
 
-  // 2. Fan-out Particle queries.
-  const entityIds = Object.values(team.entityIdMap);
+  // 2. Fan-out Particle queries. Discovery mode picks the path:
+  //    - "mentions": mentions + semantic search produce pre-flagged
+  //      moment windows Claude anchors on.
+  //    - "list-episodes": cheaper standard-tier `episodes?entity_id=…`
+  //      discovery; Claude finds moments freely from the full transcript.
+  const discoveryMode = input.discoveryMode ?? "mentions";
   const since = input.sinceTimestamp;
   const until = input.untilTimestamp;
+  const entityIds = Object.values(team.entityIdMap);
 
-  const entityResults = (
-    await Promise.all(
-      entityIds.map(async (entityId) =>
-        paginateAll<ParticleMentionResult>(
-          (cursor) => {
-            out.particleCallsAttempted += 1;
-            return deps.particle.searchEntityMentions({
-              entityId,
-              since,
-              until,
-              cursor,
-              limit: PARTICLE_PAGE_LIMIT,
-            });
-          },
-          { maxPages: PARTICLE_MAX_PAGES },
+  let allNormalised: NormalisedSegment[];
+  if (discoveryMode === "list-episodes") {
+    const listEpisodesResults = (
+      await Promise.all(
+        entityIds.map(async (entityId) =>
+          paginateAll<ParticleEpisode>(
+            (cursor) => {
+              out.particleCallsAttempted += 1;
+              return deps.particle.listEpisodes({
+                entityId,
+                publishedAfter: since,
+                publishedBefore: until,
+                cursor,
+                limit: PARTICLE_PAGE_LIMIT,
+              });
+            },
+            { maxPages: PARTICLE_MAX_PAGES },
+          ),
         ),
-      ),
-    )
-  ).flat();
-
-  const semanticResults = (
-    await Promise.all(
-      team.storylines.map(async (storyline) =>
-        paginateAll<ParticleSearchResult>(
-          (cursor) => {
-            out.particleCallsAttempted += 1;
-            return deps.particle.searchByContent({
-              semantic: storyline,
-              since,
-              until,
-              cursor,
-              limit: PARTICLE_PAGE_LIMIT,
-            });
-          },
-          { maxPages: PARTICLE_MAX_PAGES },
+      )
+    ).flat();
+    allNormalised = dedupeSegments(
+      listEpisodesResults.flatMap((ep) => normaliseFromListEpisode(ep)),
+    );
+  } else {
+    const entityResults = (
+      await Promise.all(
+        entityIds.map(async (entityId) =>
+          paginateAll<ParticleMentionResult>(
+            (cursor) => {
+              out.particleCallsAttempted += 1;
+              return deps.particle.searchEntityMentions({
+                entityId,
+                since,
+                until,
+                cursor,
+                limit: PARTICLE_PAGE_LIMIT,
+              });
+            },
+            { maxPages: PARTICLE_MAX_PAGES },
+          ),
         ),
-      ),
-    )
-  ).flat();
+      )
+    ).flat();
 
-  // 3. Normalise and dedupe across the two streams.
-  const allNormalised = dedupeSegments([
-    ...entityResults.flatMap((m) => normaliseFromMention(m)),
-    ...semanticResults.flatMap((s) => normaliseFromSearch(s)),
-  ]);
+    const semanticResults = (
+      await Promise.all(
+        team.storylines.map(async (storyline) =>
+          paginateAll<ParticleSearchResult>(
+            (cursor) => {
+              out.particleCallsAttempted += 1;
+              return deps.particle.searchByContent({
+                semantic: storyline,
+                since,
+                until,
+                cursor,
+                limit: PARTICLE_PAGE_LIMIT,
+              });
+            },
+            { maxPages: PARTICLE_MAX_PAGES },
+          ),
+        ),
+      )
+    ).flat();
+
+    // 3. Normalise and dedupe across the two streams.
+    allNormalised = dedupeSegments([
+      ...entityResults.flatMap((m) => normaliseFromMention(m)),
+      ...semanticResults.flatMap((s) => normaliseFromSearch(s)),
+    ]);
+  }
 
   // 3a. Filter to podcasts in our curated catalog. Particle's entity-
   //     mention search returns hits from across its entire universe,
@@ -182,7 +213,7 @@ export async function runIngestPipeline(
     episode: ParticleEpisode;
     anchors: NormalisedSegment[];
     extraction: EpisodeExtractionOutput | null;
-    transcript: ParticleTranscriptLine[] | null;
+    transcript: readonly ParticleTranscriptLine[] | null;
   };
 
   let episodeKeys = [...byEpisode.keys()];
@@ -194,37 +225,56 @@ export async function runIngestPipeline(
     EPISODE_CONCURRENCY,
     async (epId): Promise<EpisodeResult> => {
       const bucket = byEpisode.get(epId)!;
-      out.particleCallsAttempted += 1;
-      let transcript: ParticleEpisodeTranscript;
-      try {
-        // No start/end → full episode transcript. Same endpoint, same
-        // $0.008/call as the per-segment fetches U4 replaced.
-        transcript = await deps.particle.getClipTranscript({ episodeId: epId });
-      } catch (err) {
+      // Both calls are independent — fan them out. Saves one round-trip
+      // of latency per episode. Ads-strip is best-effort, so its failure
+      // path returns []; the transcript call's failure aborts this
+      // episode.
+      out.particleCallsAttempted += 2;
+      const [transcriptResult, ads] = await Promise.all([
+        deps.particle
+          .getClipTranscript({ episodeId: epId })
+          .then((t) => ({ ok: true as const, value: t }))
+          .catch((err: unknown) => ({ ok: false as const, err })),
+        fetchEpisodeAds(deps.particle, epId),
+      ]);
+      if (!transcriptResult.ok) {
         console.error(
           `pipeline: transcript fetch failed for episode ${epId}:`,
-          err instanceof Error ? err.message : String(err),
+          transcriptResult.err instanceof Error ? transcriptResult.err.message : String(transcriptResult.err),
         );
         return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
       }
+      const transcript = transcriptResult.value;
       if (transcript.lines.length === 0) {
         return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
       }
 
-      const transcriptLines: TranscriptLine[] = transcript.lines.map((l) => ({
+      // Same stripped lines must flow to Claude AND buildMomentTranscript
+      // — pull-quote validation runs against the persisted text, so any
+      // asymmetric reads drop quotes that landed in ads.
+      const strippedLines = stripAdWindows(transcript.lines, ads);
+
+      const transcriptLines: TranscriptLine[] = strippedLines.map((l) => ({
         start_seconds: l.start_seconds,
         end_seconds: l.end_seconds,
         speaker: l.speaker,
         text: l.text,
       }));
-      const anchors: MentionAnchor[] = bucket.anchors.map((a) => ({
-        particle_segment_id: a.segment.id,
-        start_seconds: a.segment.start_seconds,
-        end_seconds: a.segment.end_seconds,
-        title: a.segment.title,
-        match_source: a.matchSource,
-        surfacing_entities: a.surfacingEntities,
-      }));
+      // list-episodes mode passes no anchors; the post-process below
+      // assigns each moment a synthetic `${episodeId}:${start}-${end}`
+      // ID so the segments.particle_segment_id UNIQUE constraint holds
+      // without anchor IDs from Particle.
+      const anchors: MentionAnchor[] =
+        discoveryMode === "list-episodes"
+          ? []
+          : bucket.anchors.map((a) => ({
+              particle_segment_id: a.segment.id,
+              start_seconds: a.segment.start_seconds,
+              end_seconds: a.segment.end_seconds,
+              title: a.segment.title,
+              match_source: a.matchSource,
+              surfacing_entities: a.surfacingEntities,
+            }));
 
       out.anthropicCallsAttempted += 1;
       const extraction = await extractEpisodeMoments(deps.anthropic, {
@@ -240,7 +290,7 @@ export async function runIngestPipeline(
         episode: bucket.episode,
         anchors: bucket.anchors,
         extraction,
-        transcript: transcript.lines,
+        transcript: strippedLines,
       };
     },
   );
@@ -285,13 +335,20 @@ export async function runIngestPipeline(
     out.episodesPersisted += 1;
     const episodeUuid = episodeRow.id as string;
 
-    // 7b. Segment rows — one per extracted moment, mapped via particle_segment_id.
+    // 7b. Segment rows — one per extracted moment, keyed on
+    //     particle_segment_id (the UNIQUE upsert column). Mentions mode
+    //     reuses Claude's anchor-derived ID; list-episodes synthesizes
+    //     `${episode}:${start}-${end}` since no Particle segment exists.
     const segmentRows = result.extraction.moments.map((moment) => {
       const anchor = result.anchors.find((a) => a.segment.id === moment.particle_segment_id);
       const rawTranscript = buildMomentTranscript(result.transcript!, moment);
+      const segmentId =
+        discoveryMode === "list-episodes"
+          ? `${result.episode.id}:${moment.start_seconds}-${moment.end_seconds}`
+          : moment.particle_segment_id;
       return {
         episode_id: episodeUuid,
-        particle_segment_id: moment.particle_segment_id,
+        particle_segment_id: segmentId,
         start_seconds: moment.start_seconds,
         end_seconds: moment.end_seconds,
         audio_url: anchor?.segment.audio_url ?? null,
@@ -341,6 +398,48 @@ export async function runIngestPipeline(
   }
 
   return out;
+}
+
+/**
+ * Best-effort fetch of ad timecodes for an episode. On any failure (404,
+ * transient, schema), returns an empty array so the pipeline proceeds with
+ * an unstripped transcript — ad-stripping is opportunistic, never required.
+ */
+async function fetchEpisodeAds(
+  particle: PipelineDeps["particle"],
+  episodeId: string,
+): Promise<readonly ParticleEpisodeAd[]> {
+  try {
+    const response = await particle.listEpisodeAds(episodeId);
+    return response.data;
+  } catch (err) {
+    console.warn(
+      `pipeline: listEpisodeAds failed for episode ${episodeId} (continuing without ad-stripping):`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return [];
+  }
+}
+
+/**
+ * Drop transcript lines whose time range overlaps any ad window.
+ * Convention: a line is stripped if any overlap exists (even partial).
+ * Same stripped array flows to Claude AND to `buildMomentTranscript`
+ * downstream so pull-quote validation stays aligned.
+ */
+function stripAdWindows(
+  lines: readonly ParticleTranscriptLine[],
+  ads: readonly ParticleEpisodeAd[],
+): readonly ParticleTranscriptLine[] {
+  if (ads.length === 0) return lines;
+  return lines.filter((line) => !ads.some((ad) => overlaps(line, ad)));
+}
+
+function overlaps(
+  line: ParticleTranscriptLine,
+  ad: ParticleEpisodeAd,
+): boolean {
+  return line.start_seconds <= ad.end_seconds && line.end_seconds >= ad.start_seconds;
 }
 
 /**
@@ -423,6 +522,28 @@ function normaliseFromMention(m: ParticleMentionResult): NormalisedSegment[] {
   });
 }
 
+/**
+ * List-episodes discovery: convert each `ParticleEpisode` into a single
+ * synthetic NormalisedSegment covering the full episode window. The
+ * actual per-moment time bounds are refined later by the extractor.
+ */
+function normaliseFromListEpisode(ep: ParticleEpisode): NormalisedSegment[] {
+  const endSeconds = ep.duration_seconds ?? 0;
+  return [
+    {
+      episodeId: ep.id,
+      episode: ep,
+      segment: {
+        id: `${ep.id}:0-${endSeconds}`,
+        start_seconds: 0,
+        end_seconds: endSeconds,
+      },
+      matchSource: "entity",
+      surfacingEntities: [],
+    } satisfies NormalisedSegment,
+  ];
+}
+
 function normaliseFromSearch(s: ParticleSearchResult): NormalisedSegment[] {
   return [
     {
@@ -468,11 +589,18 @@ async function filterAlreadyPersisted(
   // through extraction so prompt iterations don't require a manual
   // `?force=1` ceremony. Backfilled "legacy" rows from migration 0014
   // count as mismatches and get re-processed on the first post-U5 run.
+  const rows = existing ?? [];
   const persistedAtCurrentVersion = new Set(
-    (existing ?? [])
+    rows
       .filter((row) => row.prompt_version === EPISODE_EXTRACTION_PROMPT_VERSION)
       .map((row) => row.particle_segment_id),
   );
+  const versionMismatchCount = rows.length - persistedAtCurrentVersion.size;
+  if (versionMismatchCount > 0) {
+    console.log(
+      `pipeline: re-extracting ${versionMismatchCount} segment(s) whose stored prompt_version ≠ "${EPISODE_EXTRACTION_PROMPT_VERSION}" (expected after a prompt bump; one-time cost).`,
+    );
+  }
   return items.filter((i) => !persistedAtCurrentVersion.has(i.segment.id));
 }
 

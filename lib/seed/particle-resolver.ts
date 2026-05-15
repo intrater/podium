@@ -20,9 +20,27 @@ import type {
 
 const BASE_URL = "https://api.particle.pro";
 
+/**
+ * Structured HTTP error from the seed resolver. Carries the status code
+ * so callers can branch on it (e.g. 404 → "not found") without sniffing
+ * the error message.
+ */
+export class SeedResolverHttpError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly status: number,
+    body: string,
+  ) {
+    super(`seed-resolver ${path} returned HTTP ${status}: ${body}`);
+    this.name = "SeedResolverHttpError";
+  }
+}
+
 export interface SeedParticleResolver {
   listPodcasts(opts: { q: string; limit?: number }): Promise<PaginatedResponse<ParticlePodcast>>;
   listEntities(opts: { q: string; limit?: number }): Promise<PaginatedResponse<ParticleEntity>>;
+  getPodcastBySlug(slugOrId: string): Promise<ParticlePodcast>;
+  getEntityBySlug(slugOrId: string): Promise<ParticleEntity>;
 }
 
 export function createSeedParticleResolver(apiKey: string): SeedParticleResolver {
@@ -41,9 +59,7 @@ export function createSeedParticleResolver(apiKey: string): SeedParticleResolver
       headers: { "X-API-Key": apiKey },
     });
     if (!response.ok) {
-      throw new Error(
-        `seed-resolver ${path} returned HTTP ${response.status}: ${await response.text()}`,
-      );
+      throw new SeedResolverHttpError(path, response.status, await response.text());
     }
     return (await response.json()) as T;
   };
@@ -54,6 +70,12 @@ export function createSeedParticleResolver(apiKey: string): SeedParticleResolver
     },
     async listEntities({ q, limit }) {
       return get<PaginatedResponse<ParticleEntity>>("/v1/entities", { q, limit });
+    },
+    async getPodcastBySlug(slugOrId) {
+      return get<ParticlePodcast>(`/v1/podcasts/${encodeURIComponent(slugOrId)}`, {});
+    },
+    async getEntityBySlug(slugOrId) {
+      return get<ParticleEntity>(`/v1/entities/${encodeURIComponent(slugOrId)}`, {});
     },
   };
 }

@@ -25,7 +25,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { podcasts } from "../../config/podcasts.ts";
 import { teams } from "../../config/teams.ts";
 import { niners } from "../universes/49ers.ts";
-import type { SeedParticleResolver } from "./particle-resolver.ts";
+import {
+  SeedResolverHttpError,
+  type SeedParticleResolver,
+} from "./particle-resolver.ts";
 
 export interface SeedConfig {
   podiumUserId: string;
@@ -39,8 +42,7 @@ export interface SeedConfig {
    *
    * The resolver interface is intentionally narrower than the full
    * `lib/particle/client.ts` ParticleClient — the seed only needs
-   * listPodcasts + listEntities and runs outside the Next.js
-   * server-only graph.
+   * slug→id GETs and runs outside the Next.js server-only graph.
    */
   particle?: SeedParticleResolver;
 }
@@ -180,7 +182,7 @@ async function resolvePodcastIds(
 
   let resolved = 0;
   for (const row of rows) {
-    const id = await lookupPodcastId(particle, row.name as string, row.particle_slug as string);
+    const id = await lookupPodcastId(particle, row.particle_slug as string);
     if (!id) {
       console.warn(
         `seed: could not resolve podcast slug "${row.particle_slug}" via Particle; leaving particle_id null`,
@@ -203,11 +205,17 @@ async function resolvePodcastIds(
 
 async function lookupPodcastId(
   particle: SeedParticleResolver,
-  name: string,
   slug: string,
 ): Promise<string | undefined> {
-  const response = await particle.listPodcasts({ q: name, limit: 5 });
-  return response.data.find((p) => p.slug === slug)?.id;
+  try {
+    const podcast = await particle.getPodcastBySlug(slug);
+    return podcast.id;
+  } catch (err) {
+    // 404 is "not found", every other status is genuine failure that
+    // shouldn't masquerade as an unresolved slug.
+    if (err instanceof SeedResolverHttpError && err.status === 404) return undefined;
+    throw err;
+  }
 }
 
 async function resolveEntityIds(
@@ -254,25 +262,14 @@ async function lookupEntityId(
   particle: SeedParticleResolver,
   slug: string,
 ): Promise<string | undefined> {
-  // Particle's /v1/entities only accepts a free-text query, and there's
-  // no clean way to invert a slug back into the canonical query string
-  // when the underlying name carried hyphens (e.g. "yetur-gross-matos"
-  // → "Yetur Gross-Matos" needs the first separator as a space and the
-  // second as a literal hyphen). Try common variants in order and pick
-  // the first response whose slug matches:
-  //
-  //   1. all hyphens → spaces (handles single-word + multi-word names)
-  //   2. first hyphen → space, rest preserved (handles hyphenated surnames)
-  //   3. raw slug (last-resort fallback)
-  const variants = [
-    slug.replace(/-/g, " "),
-    slug.replace(/-/, " "),
-    slug,
-  ];
-  for (const query of variants) {
-    const response = await particle.listEntities({ q: query, limit: 10 });
-    const match = response.data.find((e) => e.slug === slug);
-    if (match) return match.id;
+  // Particle's `/v1/entities/{id}` resolves slug → record directly,
+  // sidestepping the prior free-text query variants needed to invert
+  // hyphenated names like "yetur-gross-matos".
+  try {
+    const entity = await particle.getEntityBySlug(slug);
+    return entity.id;
+  } catch (err) {
+    if (err instanceof SeedResolverHttpError && err.status === 404) return undefined;
+    throw err;
   }
-  return undefined;
 }

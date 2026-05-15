@@ -30,6 +30,7 @@ import type {
   ParticleClip,
   ParticleEntity,
   ParticleEpisode,
+  ParticleEpisodeAd,
   ParticleEpisodeTranscript,
   ParticleMentionResult,
   ParticlePodcast,
@@ -61,7 +62,20 @@ export interface ParticleClientOptions {
   timeoutMs?: number;
 }
 
-interface SearchByContentBase {
+/**
+ * Optional entity/company scoping shared across endpoints that accept
+ * `entity_id` / `company_id` filters (currently `searchByContent` and
+ * `listEpisodes`). Per the vendored docs both endpoints map the camelCase
+ * options below to snake_case query keys verbatim; live narrowing on
+ * `/podcasts/search` is per-call unverified — see `docs/solutions/`
+ * for the most recent shape probe.
+ */
+interface EntityScope {
+  entityId?: string;
+  companyId?: string;
+}
+
+interface SearchByContentBase extends EntityScope {
   since?: string;
   until?: string;
   cursor?: string;
@@ -96,9 +110,9 @@ export interface ListPodcastsOpts {
   limit?: number;
 }
 
-export interface ListEpisodesOpts {
-  /** Particle podcast ID (NOT slug — use `listPodcasts` to resolve). */
-  podcastId: string;
+export interface ListEpisodesOpts extends EntityScope {
+  /** Particle podcast ID or slug. */
+  podcastId?: string;
   publishedAfter?: string;
   publishedBefore?: string;
   cursor?: string;
@@ -124,6 +138,12 @@ export interface ParticleClient {
   listEntities(opts: ListEntitiesOpts): Promise<PaginatedResponse<ParticleEntity>>;
   listPodcasts(opts: ListPodcastsOpts): Promise<PaginatedResponse<ParticlePodcast>>;
   listEpisodes(opts: ListEpisodesOpts): Promise<PaginatedResponse<ParticleEpisode>>;
+  // Particle treats slug and ID as fungible in `{id}` slots, so a single
+  // param accepts both.
+  getPodcastBySlug(slugOrId: string): Promise<ParticlePodcast>;
+  getEntityBySlug(slugOrId: string): Promise<ParticleEntity>;
+  getEpisodeById(episodeId: string): Promise<ParticleEpisode>;
+  listEpisodeAds(episodeId: string): Promise<PaginatedResponse<ParticleEpisodeAd>>;
   getClip(clipId: string): Promise<ParticleClip>;
   getClipTranscript(opts: GetTranscriptOpts): Promise<ParticleEpisodeTranscript>;
   getWordLevelTranscript(opts: GetTranscriptOpts): Promise<ParticleWordTranscript>;
@@ -142,8 +162,12 @@ const ENDPOINT_TIER: Record<string, ParticleTier> = {
   "podcasts.transcript.lines": "premium",
   "podcasts.transcript.words": "premium",
   "entities.list": "standard",
+  "entities.get": "standard",
   "podcasts.list": "standard",
+  "podcasts.get": "standard",
   "podcasts.episodes.list": "standard",
+  "podcasts.episodes.get": "standard",
+  "podcasts.episodes.ads.list": "standard",
   "podcasts.episodes.clips.list": "standard",
 };
 
@@ -185,6 +209,8 @@ export function createParticleClient(config: ParticleClientOptions): ParticleCli
       const qs = buildQuery({
         keyword_search: opts.keyword,
         semantic_search: opts.semantic,
+        entity_id: opts.entityId,
+        company_id: opts.companyId,
         since: opts.since,
         until: opts.until,
         cursor: opts.cursor,
@@ -217,12 +243,30 @@ export function createParticleClient(config: ParticleClientOptions): ParticleCli
     async listEpisodes(opts) {
       const qs = buildQuery({
         podcast_id: opts.podcastId,
+        entity_id: opts.entityId,
+        company_id: opts.companyId,
         published_after: opts.publishedAfter,
         published_before: opts.publishedBefore,
         cursor: opts.cursor,
         limit: opts.limit,
       });
       return call("podcasts.episodes.list", `/v1/podcasts/episodes${qs}`);
+    },
+
+    async getPodcastBySlug(slugOrId) {
+      return call("podcasts.get", `/v1/podcasts/${id(slugOrId)}`);
+    },
+
+    async getEntityBySlug(slugOrId) {
+      return call("entities.get", `/v1/entities/${id(slugOrId)}`);
+    },
+
+    async getEpisodeById(episodeId) {
+      return call("podcasts.episodes.get", `/v1/podcasts/episodes/${id(episodeId)}`);
+    },
+
+    async listEpisodeAds(episodeId) {
+      return call("podcasts.episodes.ads.list", `/v1/podcasts/episodes/${id(episodeId)}/ads`);
     },
 
     async getClip(clipId) {

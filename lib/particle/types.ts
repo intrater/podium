@@ -81,6 +81,23 @@ export interface ParticleEntity {
   image_url?: string;
 }
 
+/**
+ * Per-episode ad read returned by `/v1/podcasts/episodes/{id}/ads`. Only the
+ * fields the ingest pipeline reads are typed — we use `start_seconds` and
+ * `end_seconds` to strip ad-window transcript lines before Claude extraction.
+ */
+export interface ParticleEpisodeAd {
+  id?: string;
+  sponsor_name?: string;
+  product?: string;
+  offer_description?: string;
+  read_type?: "HOST_READ" | "PRE_RECORDED" | string;
+  placement_type?: "PRE_ROLL" | "MID_ROLL" | "POST_ROLL" | string;
+  start_seconds: number;
+  end_seconds: number;
+  duration_seconds?: number;
+}
+
 export interface ParticlePodcast {
   id: string;
   title: string;
