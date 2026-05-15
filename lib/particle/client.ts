@@ -30,6 +30,7 @@ import type {
   ParticleClip,
   ParticleEntity,
   ParticleEpisode,
+  ParticleEpisodeAd,
   ParticleEpisodeTranscript,
   ParticleMentionResult,
   ParticlePodcast,
@@ -137,6 +138,7 @@ export interface ParticleClient {
   getPodcastBySlug(slugOrId: string): Promise<ParticlePodcast>;
   getEntityBySlug(slugOrId: string): Promise<ParticleEntity>;
   getEpisodeById(episodeId: string): Promise<ParticleEpisode>;
+  listEpisodeAds(episodeId: string): Promise<PaginatedResponse<ParticleEpisodeAd>>;
   getClip(clipId: string): Promise<ParticleClip>;
   getClipTranscript(opts: GetTranscriptOpts): Promise<ParticleEpisodeTranscript>;
   getWordLevelTranscript(opts: GetTranscriptOpts): Promise<ParticleWordTranscript>;
@@ -160,6 +162,7 @@ const ENDPOINT_TIER: Record<string, ParticleTier> = {
   "podcasts.get": "standard",
   "podcasts.episodes.list": "standard",
   "podcasts.episodes.get": "standard",
+  "podcasts.episodes.ads.list": "standard",
   "podcasts.episodes.clips.list": "standard",
 };
 
@@ -253,6 +256,10 @@ export function createParticleClient(config: ParticleClientOptions): ParticleCli
 
     async getEpisodeById(episodeId) {
       return call("podcasts.episodes.get", `/v1/podcasts/episodes/${id(episodeId)}`);
+    },
+
+    async listEpisodeAds(episodeId) {
+      return call("podcasts.episodes.ads.list", `/v1/podcasts/episodes/${id(episodeId)}/ads`);
     },
 
     async getClip(clipId) {

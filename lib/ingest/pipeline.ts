@@ -25,6 +25,7 @@ import type {
   ParticleSearchResult,
   ParticleSegment,
   ParticleEpisode,
+  ParticleEpisodeAd,
   ParticleMentionResult,
   ParticleEpisodeTranscript,
   ParticleTranscriptLine,
@@ -182,7 +183,7 @@ export async function runIngestPipeline(
     episode: ParticleEpisode;
     anchors: NormalisedSegment[];
     extraction: EpisodeExtractionOutput | null;
-    transcript: ParticleTranscriptLine[] | null;
+    transcript: readonly ParticleTranscriptLine[] | null;
   };
 
   let episodeKeys = [...byEpisode.keys()];
@@ -211,7 +212,15 @@ export async function runIngestPipeline(
         return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
       }
 
-      const transcriptLines: TranscriptLine[] = transcript.lines.map((l) => ({
+      // Strip ad-window transcript lines before they reach Claude AND
+      // before they reach `buildMomentTranscript` — both paths must see
+      // the same stripped lines or pull-quote validation drops quotes
+      // that landed in ads.
+      out.particleCallsAttempted += 1;
+      const ads = await fetchEpisodeAds(deps.particle, epId);
+      const strippedLines = stripAdWindows(transcript.lines, ads);
+
+      const transcriptLines: TranscriptLine[] = strippedLines.map((l) => ({
         start_seconds: l.start_seconds,
         end_seconds: l.end_seconds,
         speaker: l.speaker,
@@ -240,7 +249,7 @@ export async function runIngestPipeline(
         episode: bucket.episode,
         anchors: bucket.anchors,
         extraction,
-        transcript: transcript.lines,
+        transcript: strippedLines,
       };
     },
   );
@@ -341,6 +350,48 @@ export async function runIngestPipeline(
   }
 
   return out;
+}
+
+/**
+ * Best-effort fetch of ad timecodes for an episode. On any failure (404,
+ * transient, schema), returns an empty array so the pipeline proceeds with
+ * an unstripped transcript — ad-stripping is opportunistic, never required.
+ */
+async function fetchEpisodeAds(
+  particle: PipelineDeps["particle"],
+  episodeId: string,
+): Promise<readonly ParticleEpisodeAd[]> {
+  try {
+    const response = await particle.listEpisodeAds(episodeId);
+    return response.data;
+  } catch (err) {
+    console.warn(
+      `pipeline: listEpisodeAds failed for episode ${episodeId} (continuing without ad-stripping):`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return [];
+  }
+}
+
+/**
+ * Drop transcript lines whose time range overlaps any ad window.
+ * Convention: a line is stripped if any overlap exists (even partial).
+ * Same stripped array flows to Claude AND to `buildMomentTranscript`
+ * downstream so pull-quote validation stays aligned.
+ */
+function stripAdWindows(
+  lines: readonly ParticleTranscriptLine[],
+  ads: readonly ParticleEpisodeAd[],
+): readonly ParticleTranscriptLine[] {
+  if (ads.length === 0) return lines;
+  return lines.filter((line) => !ads.some((ad) => overlaps(line, ad)));
+}
+
+function overlaps(
+  line: ParticleTranscriptLine,
+  ad: ParticleEpisodeAd,
+): boolean {
+  return line.start_seconds <= ad.end_seconds && line.end_seconds >= ad.start_seconds;
 }
 
 /**
