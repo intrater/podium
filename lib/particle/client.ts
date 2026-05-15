@@ -62,19 +62,24 @@ export interface ParticleClientOptions {
   timeoutMs?: number;
 }
 
-interface SearchByContentBase {
+/**
+ * Optional entity/company scoping shared across endpoints that accept
+ * `entity_id` / `company_id` filters (currently `searchByContent` and
+ * `listEpisodes`). Per the vendored docs both endpoints map the camelCase
+ * options below to snake_case query keys verbatim; live narrowing on
+ * `/podcasts/search` is per-call unverified — see `docs/solutions/`
+ * for the most recent shape probe.
+ */
+interface EntityScope {
+  entityId?: string;
+  companyId?: string;
+}
+
+interface SearchByContentBase extends EntityScope {
   since?: string;
   until?: string;
   cursor?: string;
   limit?: number;
-  /**
-   * Particle entity ID to scope the search to. Surface ships per docs;
-   * live narrowing behavior unverified (see U2 of the 2026-05-14 Particle
-   * API optimizations plan).
-   */
-  entityId?: string;
-  /** Same gating semantics as `entityId`, scoped to a company. */
-  companyId?: string;
 }
 
 /**
@@ -105,18 +110,9 @@ export interface ListPodcastsOpts {
   limit?: number;
 }
 
-export interface ListEpisodesOpts {
-  /** Particle podcast ID or slug. Optional when filtering by `entityId`. */
+export interface ListEpisodesOpts extends EntityScope {
+  /** Particle podcast ID or slug. */
   podcastId?: string;
-  /**
-   * Particle entity ID (or slug) — narrow to episodes where this entity
-   * appears. Standard tier, ~10× cheaper than mentions; the U4 list-episodes
-   * discovery mode uses this. At least one of podcastId, entityId, or
-   * companyId must be set in practice.
-   */
-  entityId?: string;
-  /** Particle company ID or domain. */
-  companyId?: string;
   publishedAfter?: string;
   publishedBefore?: string;
   cursor?: string;
@@ -142,8 +138,8 @@ export interface ParticleClient {
   listEntities(opts: ListEntitiesOpts): Promise<PaginatedResponse<ParticleEntity>>;
   listPodcasts(opts: ListPodcastsOpts): Promise<PaginatedResponse<ParticlePodcast>>;
   listEpisodes(opts: ListEpisodesOpts): Promise<PaginatedResponse<ParticleEpisode>>;
-  // Direct-resource GETs — Particle treats slug and ID as fungible
-  // identifiers in `{id}` slots, so a single param accepts both.
+  // Particle treats slug and ID as fungible in `{id}` slots, so a single
+  // param accepts both.
   getPodcastBySlug(slugOrId: string): Promise<ParticlePodcast>;
   getEntityBySlug(slugOrId: string): Promise<ParticleEntity>;
   getEpisodeById(episodeId: string): Promise<ParticleEpisode>;

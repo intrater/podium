@@ -27,7 +27,7 @@ import { estimateCost } from "@/lib/particle/cost-estimate";
 import { env } from "@/lib/env";
 
 import { runIngestPipeline } from "./pipeline";
-import type { IngestPipelineOutput, PipelineDeps } from "./types";
+import type { DiscoveryMode, IngestPipelineOutput, PipelineDeps } from "./types";
 
 const FIRST_RUN_WINDOW_DAYS = 3;
 const DEV_MODE_WINDOW_DAYS = 1;
@@ -57,7 +57,7 @@ export interface DailyIngestionDeps extends PipelineDeps {
    */
   maxEpisodes?: number;
   /** Override discovery mode for tests. Defaults to env.INGEST_DISCOVERY_MODE. */
-  discoveryMode?: "mentions" | "list-episodes";
+  discoveryMode?: DiscoveryMode;
   /** Inject `now()` for tests. */
   now?: () => Date;
 }

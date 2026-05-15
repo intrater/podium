@@ -27,7 +27,6 @@ import type {
   ParticleEpisode,
   ParticleEpisodeAd,
   ParticleMentionResult,
-  ParticleEpisodeTranscript,
   ParticleTranscriptLine,
 } from "@/lib/particle/types";
 import { paginateAll } from "@/lib/particle/client";
@@ -86,11 +85,10 @@ export async function runIngestPipeline(
   const team = await loadTeamContext(deps, input.teamId);
 
   // 2. Fan-out Particle queries. Discovery mode picks the path:
-  //    - "mentions" (default): mentions + semantic search produce
-  //      pre-flagged moment windows Claude anchors on.
-  //    - "list-episodes" (U4 of this plan): cheaper standard-tier
-  //      `episodes?entity_id=…` discovery; Claude finds moments freely
-  //      from the full transcript, no mention windows.
+  //    - "mentions": mentions + semantic search produce pre-flagged
+  //      moment windows Claude anchors on.
+  //    - "list-episodes": cheaper standard-tier `episodes?entity_id=…`
+  //      discovery; Claude finds moments freely from the full transcript.
   const discoveryMode = input.discoveryMode ?? "mentions";
   const since = input.sinceTimestamp;
   const until = input.untilTimestamp;
@@ -227,29 +225,33 @@ export async function runIngestPipeline(
     EPISODE_CONCURRENCY,
     async (epId): Promise<EpisodeResult> => {
       const bucket = byEpisode.get(epId)!;
-      out.particleCallsAttempted += 1;
-      let transcript: ParticleEpisodeTranscript;
-      try {
-        // No start/end → full episode transcript. Same endpoint, same
-        // $0.008/call as the per-segment fetches U4 replaced.
-        transcript = await deps.particle.getClipTranscript({ episodeId: epId });
-      } catch (err) {
+      // Both calls are independent — fan them out. Saves one round-trip
+      // of latency per episode. Ads-strip is best-effort, so its failure
+      // path returns []; the transcript call's failure aborts this
+      // episode.
+      out.particleCallsAttempted += 2;
+      const [transcriptResult, ads] = await Promise.all([
+        deps.particle
+          .getClipTranscript({ episodeId: epId })
+          .then((t) => ({ ok: true as const, value: t }))
+          .catch((err: unknown) => ({ ok: false as const, err })),
+        fetchEpisodeAds(deps.particle, epId),
+      ]);
+      if (!transcriptResult.ok) {
         console.error(
           `pipeline: transcript fetch failed for episode ${epId}:`,
-          err instanceof Error ? err.message : String(err),
+          transcriptResult.err instanceof Error ? transcriptResult.err.message : String(transcriptResult.err),
         );
         return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
       }
+      const transcript = transcriptResult.value;
       if (transcript.lines.length === 0) {
         return { episodeId: epId, episode: bucket.episode, anchors: bucket.anchors, extraction: null, transcript: null };
       }
 
-      // Strip ad-window transcript lines before they reach Claude AND
-      // before they reach `buildMomentTranscript` — both paths must see
-      // the same stripped lines or pull-quote validation drops quotes
-      // that landed in ads.
-      out.particleCallsAttempted += 1;
-      const ads = await fetchEpisodeAds(deps.particle, epId);
+      // Same stripped lines must flow to Claude AND buildMomentTranscript
+      // — pull-quote validation runs against the persisted text, so any
+      // asymmetric reads drop quotes that landed in ads.
       const strippedLines = stripAdWindows(transcript.lines, ads);
 
       const transcriptLines: TranscriptLine[] = strippedLines.map((l) => ({
@@ -258,10 +260,10 @@ export async function runIngestPipeline(
         speaker: l.speaker,
         text: l.text,
       }));
-      // List-episodes mode passes no anchors — Claude finds moments
-      // freely and the pipeline overrides each moment's
-      // particle_segment_id with `${episodeId}:${start}-${end}` after
-      // extraction so the persisted UNIQUE constraint stays satisfied.
+      // list-episodes mode passes no anchors; the post-process below
+      // assigns each moment a synthetic `${episodeId}:${start}-${end}`
+      // ID so the segments.particle_segment_id UNIQUE constraint holds
+      // without anchor IDs from Particle.
       const anchors: MentionAnchor[] =
         discoveryMode === "list-episodes"
           ? []
@@ -333,11 +335,10 @@ export async function runIngestPipeline(
     out.episodesPersisted += 1;
     const episodeUuid = episodeRow.id as string;
 
-    // 7b. Segment rows — one per extracted moment, mapped via particle_segment_id.
-    //      List-episodes mode: synthesize a stable per-moment ID
-    //      (`${episode}:${start}-${end}`) so the UNIQUE constraint on
-    //      `segments.particle_segment_id` survives. Mentions mode keeps
-    //      Claude's anchor-derived ID intact.
+    // 7b. Segment rows — one per extracted moment, keyed on
+    //     particle_segment_id (the UNIQUE upsert column). Mentions mode
+    //     reuses Claude's anchor-derived ID; list-episodes synthesizes
+    //     `${episode}:${start}-${end}` since no Particle segment exists.
     const segmentRows = result.extraction.moments.map((moment) => {
       const anchor = result.anchors.find((a) => a.segment.id === moment.particle_segment_id);
       const rawTranscript = buildMomentTranscript(result.transcript!, moment);
@@ -588,11 +589,18 @@ async function filterAlreadyPersisted(
   // through extraction so prompt iterations don't require a manual
   // `?force=1` ceremony. Backfilled "legacy" rows from migration 0014
   // count as mismatches and get re-processed on the first post-U5 run.
+  const rows = existing ?? [];
   const persistedAtCurrentVersion = new Set(
-    (existing ?? [])
+    rows
       .filter((row) => row.prompt_version === EPISODE_EXTRACTION_PROMPT_VERSION)
       .map((row) => row.particle_segment_id),
   );
+  const versionMismatchCount = rows.length - persistedAtCurrentVersion.size;
+  if (versionMismatchCount > 0) {
+    console.log(
+      `pipeline: re-extracting ${versionMismatchCount} segment(s) whose stored prompt_version ≠ "${EPISODE_EXTRACTION_PROMPT_VERSION}" (expected after a prompt bump; one-time cost).`,
+    );
+  }
   return items.filter((i) => !persistedAtCurrentVersion.has(i.segment.id));
 }
 

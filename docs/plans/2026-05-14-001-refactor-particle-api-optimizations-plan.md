@@ -1,7 +1,7 @@
 ---
 title: refactor: Particle API optimizations — slug GETs, search filters, ad-stripping, list-episodes discovery
 type: refactor
-status: active
+status: completed
 date: 2026-05-14
 ---
 

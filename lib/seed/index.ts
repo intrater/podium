@@ -25,7 +25,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { podcasts } from "../../config/podcasts.ts";
 import { teams } from "../../config/teams.ts";
 import { niners } from "../universes/49ers.ts";
-import type { SeedParticleResolver } from "./particle-resolver.ts";
+import {
+  SeedResolverHttpError,
+  type SeedParticleResolver,
+} from "./particle-resolver.ts";
 
 export interface SeedConfig {
   podiumUserId: string;
@@ -39,9 +42,7 @@ export interface SeedConfig {
    *
    * The resolver interface is intentionally narrower than the full
    * `lib/particle/client.ts` ParticleClient — the seed only needs
-   * getPodcastBySlug + getEntityBySlug (with the legacy list methods
-   * retained for the tests that still use them) and runs outside the
-   * Next.js server-only graph.
+   * slug→id GETs and runs outside the Next.js server-only graph.
    */
   particle?: SeedParticleResolver;
 }
@@ -181,7 +182,7 @@ async function resolvePodcastIds(
 
   let resolved = 0;
   for (const row of rows) {
-    const id = await lookupPodcastId(particle, row.name as string, row.particle_slug as string);
+    const id = await lookupPodcastId(particle, row.particle_slug as string);
     if (!id) {
       console.warn(
         `seed: could not resolve podcast slug "${row.particle_slug}" via Particle; leaving particle_id null`,
@@ -204,18 +205,15 @@ async function resolvePodcastIds(
 
 async function lookupPodcastId(
   particle: SeedParticleResolver,
-  _name: string,
   slug: string,
 ): Promise<string | undefined> {
-  // Particle's `/v1/podcasts/{id}` resolves slug → record directly.
-  // 404 is treated as "not found" — anything else surfaces as an error
-  // so a transient API problem doesn't masquerade as an unresolved slug.
   try {
     const podcast = await particle.getPodcastBySlug(slug);
     return podcast.id;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("HTTP 404")) return undefined;
+    // 404 is "not found", every other status is genuine failure that
+    // shouldn't masquerade as an unresolved slug.
+    if (err instanceof SeedResolverHttpError && err.status === 404) return undefined;
     throw err;
   }
 }
@@ -271,8 +269,7 @@ async function lookupEntityId(
     const entity = await particle.getEntityBySlug(slug);
     return entity.id;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("HTTP 404")) return undefined;
+    if (err instanceof SeedResolverHttpError && err.status === 404) return undefined;
     throw err;
   }
 }

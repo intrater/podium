@@ -13,7 +13,11 @@ import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { podcasts } from "@/config/podcasts";
-import { createSeedParticleResolver, type SeedParticleResolver } from "@/lib/seed/particle-resolver";
+import {
+  createSeedParticleResolver,
+  SeedResolverHttpError,
+  type SeedParticleResolver,
+} from "@/lib/seed/particle-resolver";
 import { runSeed, type SeedResult } from "@/lib/seed/index";
 import { niners } from "@/lib/universes/49ers";
 
@@ -54,14 +58,12 @@ function makeMockParticleResolver(): SeedParticleResolver {
     },
     getPodcastBySlug: async (slug) => {
       const known = podcasts.find((p) => p.particleSlug === slug);
-      if (!known) {
-        throw new Error(`seed-resolver /v1/podcasts/${slug} returned HTTP 404: not found`);
-      }
+      if (!known) throw new SeedResolverHttpError(`/v1/podcasts/${slug}`, 404, "not found");
       return { id: `id_${slug}`, title: `Mock ${slug}`, slug };
     },
     getEntityBySlug: async (slug) => {
       if (!niners.entities.includes(slug)) {
-        throw new Error(`seed-resolver /v1/entities/${slug} returned HTTP 404: not found`);
+        throw new SeedResolverHttpError(`/v1/entities/${slug}`, 404, "not found");
       }
       return { id: `id_${slug}`, slug, name: slug.replace(/-/g, " ") };
     },

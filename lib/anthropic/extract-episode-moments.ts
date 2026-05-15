@@ -202,15 +202,11 @@ function parseAndValidate(
     );
   }
 
-  // Anchor-id validation is fatal in mentions mode: a moment whose
-  // particle_segment_id isn't in our anchors list breaks the persistence
-  // layer's FK assumption. We retry on this to let the model self-correct.
-  //
-  // In list-episodes discovery mode (U4 of the Particle API
-  // optimizations plan), anchors are empty — the pipeline overwrites
-  // each moment's particle_segment_id with a synthetic
-  // `${episode_id}:${start}-${end}` after extraction. Skip the check
-  // entirely when there are no anchors to match against.
+  // Anchor-id validation: a moment whose particle_segment_id isn't in
+  // the anchors list breaks the persistence layer's idempotent upsert,
+  // so we retry to let the model self-correct. Skipped when anchors
+  // are empty (the pipeline assigns synthetic IDs post-extraction in
+  // that mode).
   if (anchorIds.size > 0) {
     const unknownAnchors: string[] = [];
     for (const moment of parsed.data.moments) {
@@ -325,11 +321,9 @@ function buildUserMessage(input: EpisodeExtractionInput): string {
     ? `Published: ${input.episode.published_at}\n`
     : "";
 
-  // No anchors → list-episodes discovery mode (U4). Tell Claude to
-  // identify its own moments from the transcript and use any unique
-  // string per moment for particle_segment_id (the pipeline overwrites
-  // it with a synthetic `${episode_id}:${start}-${end}` value before
-  // persistence, so the value Claude returns is throwaway).
+  // Empty anchors → free-form discovery. Tell Claude to find moments
+  // itself; the pipeline overrides each moment's particle_segment_id
+  // post-extraction, so Claude's value is throwaway.
   if (input.anchors.length === 0) {
     return `Podcast: ${input.podcast.name} (${input.podcast.kind})
 Episode: ${input.episode.title}

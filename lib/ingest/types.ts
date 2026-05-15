@@ -7,6 +7,14 @@
  * shapes so a single integration test fixture can drive either runtime.
  */
 
+/**
+ * Candidate-episode discovery strategy. "mentions" walks
+ * /v1/podcasts/mentions per entity (premium). "list-episodes" walks
+ * /v1/podcasts/episodes per entity (standard) and asks Claude to find
+ * moments freely from the full transcript.
+ */
+export type DiscoveryMode = "mentions" | "list-episodes";
+
 export interface IngestPipelineInput {
   teamId: string;
   /**
@@ -44,15 +52,8 @@ export interface IngestPipelineInput {
    * is plenty for content-shape sign-off). Absent = no cap.
    */
   maxEpisodes?: number;
-  /**
-   * Candidate-episode discovery path. "mentions" (default) walks
-   * /v1/podcasts/mentions per entity (premium tier) and surfaces moment
-   * windows for Claude to anchor on. "list-episodes" walks
-   * /v1/podcasts/episodes per entity (standard tier) and asks Claude to
-   * identify its own moments from the full transcript. Operator-driven
-   * A/B per the 2026-05-14 Particle API optimizations plan.
-   */
-  discoveryMode?: "mentions" | "list-episodes";
+  /** Discovery strategy; defaults to "mentions". See `DiscoveryMode`. */
+  discoveryMode?: DiscoveryMode;
 }
 
 export interface IngestPipelineOutput {
