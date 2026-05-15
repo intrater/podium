@@ -58,11 +58,21 @@ export function EpisodeCard({ card }: { card: DigestCard }) {
               >
                 <div
                   aria-hidden
-                  className="bg-popover flex size-24 shrink-0 items-center justify-center rounded-lg"
+                  className="bg-popover relative flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-lg"
                 >
-                  <span className="font-sans text-3xl font-semibold text-muted-foreground">
-                    {card.episode.podcast.name.slice(0, 1).toUpperCase()}
-                  </span>
+                  {card.episode.podcast.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={card.episode.podcast.imageUrl}
+                      alt=""
+                      className="size-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="font-sans text-3xl font-semibold text-muted-foreground">
+                      {card.episode.podcast.name.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <h2 className="text-foreground line-clamp-2 text-base font-semibold leading-snug">

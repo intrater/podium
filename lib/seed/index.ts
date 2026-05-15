@@ -173,29 +173,37 @@ async function resolvePodcastIds(
   supabase: SupabaseClient,
   particle: SeedParticleResolver,
 ): Promise<number> {
+  // Resolve rows missing particle_id OR image_url. Once a podcast's
+  // image_url is added in a later seed run, the row gets backfilled
+  // with one extra GET; subsequent runs no-op.
   const { data: rows, error } = await supabase
     .from("podcasts")
-    .select("particle_slug, name, particle_id")
-    .is("particle_id", null);
+    .select("particle_slug, name, particle_id, image_url")
+    .or("particle_id.is.null,image_url.is.null");
   if (error) throw new Error(`podcasts ID-resolution lookup failed: ${error.message}`);
   if (!rows || rows.length === 0) return 0;
 
   let resolved = 0;
   for (const row of rows) {
-    const id = await lookupPodcastId(particle, row.particle_slug as string);
-    if (!id) {
+    const podcast = await lookupPodcast(particle, row.particle_slug as string);
+    if (!podcast) {
       console.warn(
-        `seed: could not resolve podcast slug "${row.particle_slug}" via Particle; leaving particle_id null`,
+        `seed: could not resolve podcast slug "${row.particle_slug}" via Particle; leaving fields null`,
       );
       continue;
     }
+    const update: Record<string, string | null> = {};
+    if (!row.particle_id) update.particle_id = podcast.id;
+    if (!row.image_url && podcast.image_url) update.image_url = podcast.image_url;
+    if (Object.keys(update).length === 0) continue;
+
     const { error: updErr } = await supabase
       .from("podcasts")
-      .update({ particle_id: id })
+      .update(update)
       .eq("particle_slug", row.particle_slug);
     if (updErr) {
       throw new Error(
-        `failed to persist particle_id for ${row.particle_slug}: ${updErr.message}`,
+        `failed to persist resolution for ${row.particle_slug}: ${updErr.message}`,
       );
     }
     resolved += 1;
@@ -203,13 +211,13 @@ async function resolvePodcastIds(
   return resolved;
 }
 
-async function lookupPodcastId(
+async function lookupPodcast(
   particle: SeedParticleResolver,
   slug: string,
-): Promise<string | undefined> {
+): Promise<{ id: string; image_url?: string } | undefined> {
   try {
     const podcast = await particle.getPodcastBySlug(slug);
-    return podcast.id;
+    return { id: podcast.id, image_url: podcast.image_url };
   } catch (err) {
     // 404 is "not found", every other status is genuine failure that
     // shouldn't masquerade as an unresolved slug.

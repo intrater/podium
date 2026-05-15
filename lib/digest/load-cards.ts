@@ -46,7 +46,7 @@ export interface DigestCard {
     publishedAt: string | null;
     audioUrl: string | null;
     durationSeconds: number | null;
-    podcast: { id: string; name: string };
+    podcast: { id: string; name: string; imageUrl: string | null };
   };
   segments: DigestSegment[];
 }
@@ -62,7 +62,7 @@ interface CardRow {
     published_at: string | null;
     audio_url: string | null;
     duration_seconds: number | null;
-    podcasts: { id: string; name: string } | null;
+    podcasts: { id: string; name: string; image_url: string | null } | null;
     segments: Array<{
       id: string;
       particle_segment_id: string | null;
@@ -104,7 +104,7 @@ export async function loadDigestCards(
           id, surfaced_at, total_relevant_seconds, episode_summary,
           episodes (
             id, title, published_at, audio_url, duration_seconds,
-            podcasts ( id, name ),
+            podcasts ( id, name, image_url ),
             segments (
               id, particle_segment_id, start_seconds, end_seconds,
               audio_url, speaker_name, summary, pull_quotes, bullets,
@@ -143,7 +143,7 @@ export async function loadDigestCards(
     if (hiddenCardIds.has(row.id)) continue;
     if (!row.episodes) continue;
     const episode = row.episodes;
-    const podcast = episode.podcasts ?? { id: "", name: "Unknown podcast" };
+    const podcast = episode.podcasts ?? { id: "", name: "Unknown podcast", image_url: null };
 
     const segments = (episode.segments ?? [])
       .filter((s) => !hiddenSegmentIds.has(s.id))
@@ -172,7 +172,7 @@ export async function loadDigestCards(
         publishedAt: episode.published_at,
         audioUrl: episode.audio_url,
         durationSeconds: episode.duration_seconds,
-        podcast: { id: podcast.id, name: podcast.name },
+        podcast: { id: podcast.id, name: podcast.name, imageUrl: podcast.image_url ?? null },
       },
       segments,
     });
@@ -202,6 +202,68 @@ export function formatPublishedAt(iso: string | null): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+export interface DigestCardGroup {
+  /** Section header label: "Today", "Yesterday", or "Wed, May 13". */
+  label: string;
+  /** Local-time date key used for grouping (YYYY-MM-DD). */
+  dateKey: string;
+  cards: DigestCard[];
+}
+
+/**
+ * Group cards under publish-date section headers so multiple episodes
+ * from the same show on different days read clearly as different days.
+ *
+ * Sort: newest day first; within a day, cards stay in the input order
+ * (which is surfaced-at desc — typically all surfaced together anyway).
+ * Cards with no publishedAt land under a single "Earlier" bucket at
+ * the end.
+ */
+export function groupCardsByPublishDate(
+  cards: readonly DigestCard[],
+  now: Date = new Date(),
+): DigestCardGroup[] {
+  const todayKey = localDateKey(now);
+  const yesterdayKey = localDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+
+  const groups = new Map<string, DigestCard[]>();
+  for (const card of cards) {
+    const iso = card.episode.publishedAt;
+    const key = iso ? localDateKey(new Date(iso)) : "unknown";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(card);
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a > b ? -1 : a < b ? 1 : 0))
+    .map(([dateKey, list]) => ({
+      dateKey,
+      label: labelFor(dateKey, todayKey, yesterdayKey),
+      cards: list,
+    }));
+}
+
+function localDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function labelFor(key: string, today: string, yesterday: string): string {
+  if (key === "unknown") return "Earlier";
+  if (key === today) return "Today";
+  if (key === yesterday) return "Yesterday";
+  // Reconstruct a date in local time from the YYYY-MM-DD key so the
+  // weekday is computed against the user's day, not UTC.
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",

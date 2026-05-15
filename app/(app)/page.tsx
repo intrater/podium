@@ -3,8 +3,9 @@ import { EpisodeCard } from "@/components/digest/episode-card";
 import { DigestEmptyFallback } from "@/components/digest/empty-fallback";
 import { DigestLoadingState } from "@/components/digest/loading-state";
 import { RefreshBanner } from "@/components/digest/refresh-banner";
-import { ScanSummary } from "@/components/digest/scan-summary";
+import { DaySummary, ScanSummary } from "@/components/digest/scan-summary";
 import {
+  groupCardsByPublishDate,
   loadDigestCards,
   loadLatestRunStatus,
   type LatestRunStatus,
@@ -87,17 +88,31 @@ export default async function DigestPage() {
     );
   }
 
+  const groups = groupCardsByPublishDate(cards);
+
   return (
     <>
       <RefreshBanner initialRunCreatedAt={latestRun.createdAt} />
       <ScanSummary cards={cards} />
-      <ul className="flex flex-col gap-3">
-        {cards.map((card) => (
-          <li key={card.id}>
-            <EpisodeCard card={card} />
-          </li>
+      <div className="flex flex-col gap-6">
+        {groups.map((group) => (
+          <section key={group.dateKey} aria-label={group.label}>
+            <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
+              <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                {group.label}
+              </h2>
+              <DaySummary cards={group.cards} />
+            </div>
+            <ul className="flex flex-col gap-3">
+              {group.cards.map((card) => (
+                <li key={card.id}>
+                  <EpisodeCard card={card} />
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
     </>
   );
 }
