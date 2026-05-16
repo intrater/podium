@@ -48,16 +48,21 @@ import type {
 
 const PARTICLE_PAGE_LIMIT = 25;
 const PARTICLE_MAX_PAGES = 4;
-// Sequential per-episode extraction. The original concurrency=5 (and
-// even 2) bursts past Anthropic's Tier-1 rate limit of 50K input
-// tokens/min because a typical 60-90 min episode carries 15K-25K
-// tokens of transcript in the user message, plus the 4,384-token
-// cached prefix. Two concurrent calls = 40-50K tokens immediate burst.
-// Sequential with SDK maxRetries=5 (set in lib/anthropic/client.ts)
-// lets the per-call backoff absorb the rate-limit window properly.
-// When the Anthropic tier upgrades (more spend → higher TPM), raise
-// this back up.
-const EPISODE_CONCURRENCY = 1;
+// Concurrency=2 paired with the deadline guard below. Two concurrent
+// extractions can burst past Anthropic's Tier-1 50K-input-tokens/min
+// rate limit on larger episodes; SDK maxRetries=5 (in lib/anthropic/
+// client.ts) absorbs the resulting 429s via backoff. The deadline
+// guard ensures the run always finishes inside Vercel's 300s budget
+// even when retries stack up — it just persists fewer episodes that
+// run.
+const EPISODE_CONCURRENCY = 2;
+// Wall-clock budget for the extraction loop. Vercel's route maxDuration
+// is 300s; we stop dispatching new work at 240s so persistence + the
+// terminal system_alerts insert have a 60s tail to finish cleanly.
+// Without this, the function gets SIGKILLed mid-extraction and no
+// `_complete` row is written — the "silent crash" pattern that hid
+// the May 15+16 scheduled-run failures.
+const PIPELINE_DEADLINE_MS = 240_000;
 
 interface NormalisedSegment {
   episodeId: string;
@@ -79,7 +84,9 @@ export async function runIngestPipeline(
     segmentsFailedSummary: 0,
     particleCallsAttempted: 0,
     anthropicCallsAttempted: 0,
+    episodesSkippedByDeadline: 0,
   };
+  const startMs = Date.now();
 
   // 1. Load the team's universe (slugs + IDs cached at seed time).
   const team = await loadTeamContext(deps, input.teamId);
@@ -214,6 +221,7 @@ export async function runIngestPipeline(
     anchors: NormalisedSegment[];
     extraction: EpisodeExtractionOutput | null;
     transcript: readonly ParticleTranscriptLine[] | null;
+    skippedByDeadline?: boolean;
   };
 
   let episodeKeys = [...byEpisode.keys()];
@@ -225,6 +233,21 @@ export async function runIngestPipeline(
     EPISODE_CONCURRENCY,
     async (epId): Promise<EpisodeResult> => {
       const bucket = byEpisode.get(epId)!;
+      // Deadline guard: if we've already burned the wall-clock budget,
+      // skip this episode rather than start work we can't finish.
+      // The persistence loop below still runs for episodes that DID
+      // complete, so the run writes a clean `_complete` row.
+      if (Date.now() - startMs > PIPELINE_DEADLINE_MS) {
+        out.episodesSkippedByDeadline += 1;
+        return {
+          episodeId: epId,
+          episode: bucket.episode,
+          anchors: bucket.anchors,
+          extraction: null,
+          transcript: null,
+          skippedByDeadline: true,
+        };
+      }
       // Both calls are independent — fan them out. Saves one round-trip
       // of latency per episode. Ads-strip is best-effort, so its failure
       // path returns []; the transcript call's failure aborts this
@@ -297,6 +320,12 @@ export async function runIngestPipeline(
 
   // 7. Persist per episode.
   for (const result of episodeResults) {
+    if (result.skippedByDeadline) {
+      // Anchors weren't processed and aren't yet in DB at the current
+      // prompt_version, so the next run's filterAlreadyPersisted will
+      // surface them again. No counter bump — these aren't off-topic.
+      continue;
+    }
     if (!result.extraction || !result.transcript) {
       // Transcript fetch failed or extraction returned null after retries.
       // Anchors are treated as off-topic so we don't lose visibility.

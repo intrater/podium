@@ -33,6 +33,12 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const maxDuration = 300;
 
+// Defensive cap on episodes per scheduled run. The pipeline has its own
+// 240s wall-clock deadline guard, so this is belt-and-suspenders against
+// a pathological burst day. Picked at concurrency=2 × ~70s/episode +
+// setup time, leaving headroom for retries.
+const SCHEDULED_RUN_MAX_EPISODES = 8;
+
 export async function GET(request: Request): Promise<Response> {
   // AUTH MUST COME FIRST — no DB reads, no team enumeration, no work of
   // any kind before the bearer token is verified.
@@ -73,6 +79,7 @@ export async function GET(request: Request): Promise<Response> {
         teamId,
         userId: env.PODIUM_USER_ID,
         runKind: "scheduled_run",
+        maxEpisodes: SCHEDULED_RUN_MAX_EPISODES,
       });
       results.push({ teamId, result });
     } catch (err) {

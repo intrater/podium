@@ -81,6 +81,7 @@ describe("POST /api/ingest — happy path", () => {
         segmentsFailedSummary: 0,
         particleCallsAttempted: 5,
         anthropicCallsAttempted: 3,
+        episodesSkippedByDeadline: 0,
       },
     });
     const { POST } = await import("@/app/api/ingest/route");

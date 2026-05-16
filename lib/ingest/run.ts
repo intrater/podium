@@ -82,6 +82,13 @@ export async function runDailyIngestion(
   const discoveryMode = deps.discoveryMode ?? env.INGEST_DISCOVERY_MODE;
   const runKind = deps.runKind ?? "manual_run";
 
+  // 0. Silent-failure detector. Vercel SIGKILLs the function at
+  //    maxDuration, which leaves a `*_run` start row in system_alerts
+  //    with no matching `_complete`/`_failed` terminal — invisible
+  //    breakage. Each invocation reconciles the prior 24h so an operator
+  //    looking at system_alerts can SEE the dead runs instead of guessing.
+  await detectAndMarkSilentFailures(deps, now);
+
   // 1. Load the resolved-id catalog. Skip rows whose particle_id is null —
   //    those are unresolved at seed time and the worker would 404 on
   //    listEpisodes.
@@ -295,6 +302,73 @@ interface SystemAlertPayload {
   startedAt?: string;
   finishedAt?: string;
   pipeline?: IngestPipelineOutput;
+}
+
+/**
+ * Find `*_run` start rows from the last 24h whose `run_id` has no
+ * matching terminal marker (`_complete`/`_failed`/`silent_failure`),
+ * and write a `silent_failure` row for each. The 5-minute grace
+ * window prevents false-positives for runs still in flight — Vercel's
+ * maxDuration is 300s so anything older than that has terminated one
+ * way or another.
+ */
+async function detectAndMarkSilentFailures(
+  deps: DailyIngestionDeps,
+  now: Date,
+): Promise<void> {
+  const lookbackStart = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const inFlightCutoff = now.getTime() - 5 * 60 * 1000;
+
+  const { data: allStartRows, error: startErr } = await deps.supabase
+    .from("system_alerts")
+    .select("created_at, kind, payload")
+    .in("kind", ["manual_run", "scheduled_run"])
+    .gte("created_at", lookbackStart);
+  if (startErr) {
+    console.warn(`runDailyIngestion: silent-failure scan failed (${startErr.message}); skipping`);
+    return;
+  }
+  // Filter out runs still potentially in flight in JS — splitting the
+  // range into two Supabase ops would require mock-chain support we
+  // don't have, and the row count here is small (<= 1 day of run starts).
+  const startRows = (allStartRows ?? []).filter((r) => {
+    const created = new Date(r.created_at as string).getTime();
+    return Number.isFinite(created) && created < inFlightCutoff;
+  });
+  if (startRows.length === 0) return;
+
+  for (const row of startRows) {
+    const payload = row.payload as { run_id?: string } | null;
+    const priorRunId = payload?.run_id;
+    if (!priorRunId) continue;
+
+    const { data: terminals } = await deps.supabase
+      .from("system_alerts")
+      .select("kind")
+      .eq("payload->>run_id", priorRunId)
+      .in("kind", [
+        `${row.kind}_complete`,
+        `${row.kind}_failed`,
+        "silent_failure",
+      ]);
+    if ((terminals ?? []).length > 0) continue;
+
+    const { error: insertErr } = await deps.supabase.from("system_alerts").insert({
+      kind: "silent_failure",
+      notes: `${row.kind} ${priorRunId} (started ${row.created_at}) never wrote a terminal marker — function probably hit Vercel maxDuration`,
+      payload: {
+        detected_run_id: priorRunId,
+        detected_run_kind: row.kind,
+        detected_started_at: row.created_at,
+        detected_at: now.toISOString(),
+      },
+    });
+    if (insertErr) {
+      console.warn(`runDailyIngestion: failed to mark silent_failure for ${priorRunId}: ${insertErr.message}`);
+    } else {
+      console.log(`runDailyIngestion: marked silent_failure for ${row.kind} ${priorRunId}`);
+    }
+  }
 }
 
 async function writeSystemAlert(

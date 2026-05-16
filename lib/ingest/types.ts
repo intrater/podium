@@ -68,6 +68,12 @@ export interface IngestPipelineOutput {
   particleCallsAttempted: number;
   /** Cost-tracked Anthropic call count. */
   anthropicCallsAttempted: number;
+  /**
+   * Episodes the deadline guard skipped because the wall-clock budget
+   * was already exhausted. They stay un-persisted at the current
+   * prompt_version, so the next run picks them up via filterAlreadyPersisted.
+   */
+  episodesSkippedByDeadline: number;
 }
 
 export interface PipelineDeps {
