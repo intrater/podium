@@ -1,11 +1,11 @@
 import { retryDailyIngestion } from "@/app/(app)/actions";
 import { EpisodeCard } from "@/components/digest/episode-card";
-import { DigestEmptyFallback } from "@/components/digest/empty-fallback";
 import { DigestLoadingState } from "@/components/digest/loading-state";
+import { PipelineHealthBanner } from "@/components/digest/pipeline-health-banner";
 import { RefreshBanner } from "@/components/digest/refresh-banner";
 import { DaySummary, ScanSummary } from "@/components/digest/scan-summary";
 import {
-  groupCardsByPublishDate,
+  groupCardsByDayWindow,
   loadDigestCards,
   loadLatestRunStatus,
   type LatestRunStatus,
@@ -16,6 +16,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 const TEAM_ID = "49ers";
+// Number of recent days to always render as sections, so the user can
+// see at-a-glance which days had content and which didn't.
+const DAY_WINDOW = 7;
 
 /** Sentinel returned when the system_alerts lookup throws — the page
  *  still renders cards rather than 500ing on a status read failure. */
@@ -74,10 +77,12 @@ export default async function DigestPage() {
         ),
         STATUS_FALLBACK);
 
-  if (cards.length === 0) {
-    if (latestRun.status === "completed") {
-      return <DigestEmptyFallback />;
-    }
+  // No cards at all + the pipeline has never completed → first-run UX
+  // (loading / retry / cost-abort recovery). Once at least one run has
+  // completed, even with zero cards, we render the day-window grid so
+  // the user sees explicit "no new content" sections rather than a
+  // blank screen.
+  if (cards.length === 0 && latestRun.status !== "completed") {
     return (
       <DigestLoadingState
         initialStatus={latestRun.status}
@@ -88,11 +93,12 @@ export default async function DigestPage() {
     );
   }
 
-  const groups = groupCardsByPublishDate(cards);
+  const groups = groupCardsByDayWindow(cards, DAY_WINDOW);
 
   return (
     <>
       <RefreshBanner initialRunCreatedAt={latestRun.createdAt} />
+      <PipelineHealthBanner latestRun={latestRun} />
       <ScanSummary cards={cards} />
       <div className="flex flex-col gap-6">
         {groups.map((group) => (
@@ -103,13 +109,19 @@ export default async function DigestPage() {
               </h2>
               <DaySummary cards={group.cards} />
             </div>
-            <ul className="flex flex-col gap-3">
-              {group.cards.map((card) => (
-                <li key={card.id}>
-                  <EpisodeCard card={card} />
-                </li>
-              ))}
-            </ul>
+            {group.cards.length === 0 ? (
+              <p className="text-muted-foreground px-1 text-xs italic">
+                No 49ers content this day.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {group.cards.map((card) => (
+                  <li key={card.id}>
+                    <EpisodeCard card={card} />
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         ))}
       </div>

@@ -249,6 +249,56 @@ export function groupCardsByPublishDate(
     }));
 }
 
+/**
+ * Generate a contiguous window of day-sections — every day in the
+ * window appears in the result whether or not it had cards. Empty
+ * days render as "No new content" sections so the user can tell
+ * "nothing was published" apart from "the section is missing because
+ * something is broken." Days outside the window with cards are still
+ * collected under an "Earlier" bucket at the end so older content
+ * is not silently dropped.
+ */
+export function groupCardsByDayWindow(
+  cards: readonly DigestCard[],
+  windowDays: number,
+  now: Date = new Date(),
+): DigestCardGroup[] {
+  const todayKey = localDateKey(now);
+  const yesterdayKey = localDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+
+  // Bucket cards by their local-date key.
+  const byKey = new Map<string, DigestCard[]>();
+  for (const card of cards) {
+    const iso = card.episode.publishedAt;
+    const key = iso ? localDateKey(new Date(iso)) : "unknown";
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(card);
+  }
+
+  // Build the contiguous window — today, today-1, ..., today-(windowDays-1).
+  const windowKeys: string[] = [];
+  for (let i = 0; i < windowDays; i += 1) {
+    windowKeys.push(localDateKey(new Date(now.getTime() - i * 24 * 60 * 60 * 1000)));
+  }
+
+  const sections: DigestCardGroup[] = windowKeys.map((dateKey) => ({
+    dateKey,
+    label: labelFor(dateKey, todayKey, yesterdayKey),
+    cards: byKey.get(dateKey) ?? [],
+  }));
+
+  // Any cards whose date falls outside the window go under "Earlier".
+  const earlier: DigestCard[] = [];
+  for (const [key, list] of byKey.entries()) {
+    if (!windowKeys.includes(key)) earlier.push(...list);
+  }
+  if (earlier.length > 0) {
+    sections.push({ dateKey: "earlier", label: "Earlier", cards: earlier });
+  }
+
+  return sections;
+}
+
 function localDateKey(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -289,6 +339,7 @@ export const KIND_TO_STATUS: Record<string, DigestRunStatus> = {
   scheduled_run_complete: "completed",
   manual_run_failed: "failed",
   scheduled_run_failed: "failed",
+  silent_failure: "failed",
   cost_abort: "cost_aborted",
 };
 
