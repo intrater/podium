@@ -12,9 +12,8 @@
  *   - One semantic-search page per universe storyline.
  *   - Two list-episodes pages per podcast per 3 days of window
  *     (most podcasts publish 1–3 episodes in that span).
- *   - 200 segments per day worst case requiring transcript fetch (per
- *     U1 round 2 estimate; the real number trends much lower at v1
- *     volume, but the gate must err on the side of overestimating).
+ *   - Two transcript fetches per podcast per day worst case (post-U4,
+ *     transcript fetch happens once per episode, not once per segment).
  *
  * If real-world numbers diverge during U8 development, tune the
  * assumption constants here — the API surface stays stable.
@@ -56,7 +55,10 @@ export interface CostEstimateResult {
 const ENTITY_MENTION_PAGES_PER_ENTITY = 1;
 const SEMANTIC_PAGES_PER_STORYLINE = 1;
 const LIST_EPISODE_PAGES_PER_PODCAST_PER_3_DAYS = 2;
-const SEGMENTS_PER_DAY_WORST_CASE = 200;
+// Post-U4, transcript fetch is once per episode (not once per segment).
+// Curated podcasts publish 0–2 relevant episodes/day; 2 is the worst case
+// with a small safety buffer so the gate can't false-pass on a burst day.
+const EPISODES_PER_PODCAST_PER_DAY_WORST_CASE = 2;
 
 export function estimateCost(input: CostEstimateInput): CostEstimateResult {
   const tier = input.tier ?? "standard";
@@ -67,7 +69,8 @@ export function estimateCost(input: CostEstimateInput): CostEstimateResult {
   const listPagesPerPodcast =
     LIST_EPISODE_PAGES_PER_PODCAST_PER_3_DAYS * Math.max(1, Math.ceil(input.windowDays / 3));
   const listCalls = input.podcastCount * listPagesPerPodcast;
-  const transcriptCalls = SEGMENTS_PER_DAY_WORST_CASE * input.windowDays;
+  const transcriptCalls =
+    input.podcastCount * EPISODES_PER_PODCAST_PER_DAY_WORST_CASE * input.windowDays;
 
   const entityCost = entityCalls * pricePerCall;
   const semanticCost = semanticCalls * pricePerCall;
