@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "seed": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/seed-supabase.ts",
     "seed:team-brain": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/seed-team-brain.ts",
+    "probe:speakers": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/probe-speaker-attribution.ts",
     "inspect-card": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-card.ts",
     "qa:screenshots": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/qa-screenshots.ts",
     "inspect-costs": "node --env-file=.env.local --experimental-transform-types --no-warnings=ExperimentalWarning scripts/inspect-costs.ts",

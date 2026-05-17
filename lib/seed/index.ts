@@ -24,6 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // Next.js both still resolve these via tsconfig's bundler resolution.
 import { podcasts } from "../../config/podcasts.ts";
 import { tierForSlug } from "../../config/tiers.ts";
+import { assertTierConsistency, voices } from "../../config/voices.ts";
 import { teams } from "../../config/teams.ts";
 import { niners } from "../universes/49ers.ts";
 import {
@@ -55,6 +56,7 @@ export interface SeedResult {
   podcastsUpserted: number;
   podcastIdsResolved: number;
   entityIdsResolved: number;
+  voicesUpserted: number;
 }
 
 export async function runSeed(
@@ -68,6 +70,7 @@ export async function runSeed(
     podcastsUpserted: 0,
     podcastIdsResolved: 0,
     entityIdsResolved: 0,
+    voicesUpserted: 0,
   };
 
   // 1. Auth user (idempotent: getUserById, then createUser only if missing).
@@ -160,7 +163,42 @@ export async function runSeed(
     result.podcastsUpserted += 1;
   }
 
-  // 6. Resolve slug→id when a Particle client is supplied. Only fills
+  // 6. Voices catalog. v2 editorial voices — currently show-level only,
+  //    one row per Tier-A podcast. Upserts keyed on voice id; tier
+  //    drift between config/voices and config/tiers fails loudly.
+  assertTierConsistency();
+  for (const voice of voices) {
+    // Look up the local podcast row by particle_slug so we can FK.
+    const { data: podcastRow, error: podcastErr } = await supabase
+      .from("podcasts")
+      .select("id")
+      .eq("particle_slug", voice.podcastSlug)
+      .maybeSingle();
+    if (podcastErr) {
+      throw new Error(
+        `voices: lookup of podcast ${voice.podcastSlug} failed: ${podcastErr.message}`,
+      );
+    }
+    if (!podcastRow) {
+      throw new Error(
+        `voices: voice ${voice.id} points at podcast ${voice.podcastSlug} which is not in the catalog`,
+      );
+    }
+    const { error } = await supabase.from("voices").upsert(
+      {
+        id: voice.id,
+        kind: voice.kind,
+        display_name: voice.displayName,
+        tier: voice.tier,
+        podcast_id: podcastRow.id,
+      },
+      { onConflict: "id" },
+    );
+    if (error) throw new Error(`voices upsert failed: ${error.message}`);
+    result.voicesUpserted += 1;
+  }
+
+  // 7. Resolve slug→id when a Particle client is supplied. Only fills
   //    `podcasts.particle_id` rows that are still null — re-runs against
   //    a fully-resolved table no-op. Same for `universes.entity_id_map`.
   if (config.particle) {

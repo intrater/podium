@@ -50,6 +50,7 @@ console.log(`  auth user:        ${result.authUserCreated ? "created" : "already
 console.log(`  teams:            ${result.teamsUpserted} upserted`);
 console.log(`  universe:         ${result.universeUpserted} upserted`);
 console.log(`  podcasts:         ${result.podcastsUpserted} upserted`);
+console.log(`  voices:           ${result.voicesUpserted} upserted`);
 console.log(`  podcast ids:      ${result.podcastIdsResolved} resolved this run`);
 console.log(`  entity ids:       ${result.entityIdsResolved} resolved this run`);
 
