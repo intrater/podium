@@ -15,9 +15,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { AnthropicClient } from "../anthropic/client.ts";
 import { clusterThemes } from "../anthropic/cluster-themes.ts";
+import { loadTeamBrain } from "../team-brain/load.ts";
+import { extractTopicKey } from "../voice-memory/extract-topic-key.ts";
 
 import { detectManufactured, liteFromMoment } from "./detect-manufactured.ts";
-import { extractTopicKey } from "../voice-memory/extract-topic-key.ts";
+import { evaluateThemeNovelty } from "./novelty-gate.ts";
 import {
   THEME_CLUSTERING_PROMPT_VERSION,
   type MomentForClustering,
@@ -39,6 +41,8 @@ export interface ClusterMomentsOutput {
   momentsConsidered: number;
   /** Themes the model produced. */
   themesProduced: number;
+  /** Themes the novelty gate suppressed (recurring without movement). */
+  themesSuppressedByNovelty: number;
   /** Themes that landed as new rows (excluding cross-day duplicates that
    *  hit the per-day UNIQUE constraint and silently dropped). */
   themesPersisted: number;
@@ -71,6 +75,7 @@ export async function clusterMomentsForRun(
   const out: ClusterMomentsOutput = {
     momentsConsidered: 0,
     themesProduced: 0,
+    themesSuppressedByNovelty: 0,
     themesPersisted: 0,
     newsEchoTagged: 0,
   };
@@ -91,6 +96,17 @@ export async function clusterMomentsForRun(
   }
   out.themesProduced = rawThemes.length;
 
+  // Load team brain + voice display-names once for the novelty gate.
+  // Brain is the cacheable system prefix; display-names render
+  // signal detail copy on the card.
+  const teamBrain = await loadTeamBrain(supabase, input.teamId);
+  if (!teamBrain) {
+    console.warn(
+      `clusterMomentsForRun: no team brain for ${input.teamId} — surfacing all themes without novelty gating`,
+    );
+  }
+  const voiceDisplayNames = await loadVoiceDisplayNames(supabase);
+
   const candidates: ThemeCandidate[] = rawThemes.map((raw) => {
     const members = moments.filter((m) => raw.member_segment_ids.includes(m.segment_id));
     const distinctVoiceIds = uniqueNonNull(members.map((m) => m.voice_id));
@@ -110,10 +126,47 @@ export async function clusterMomentsForRun(
     };
   });
 
+  // Novelty gate: filter candidates to those representing actual
+  // movement. Skipped entirely if the team brain isn't seeded —
+  // surfacing all themes is the safer fallback than crashing.
+  const gatedCandidates: ThemeCandidate[] = [];
+  for (const candidate of candidates) {
+    if (!teamBrain) {
+      gatedCandidates.push(candidate);
+      continue;
+    }
+    try {
+      const decision = await evaluateThemeNovelty(
+        { supabase, anthropic, teamBrain },
+        {
+          teamId: input.teamId,
+          now: input.untilTimestamp,
+          theme: candidate,
+          members: moments,
+          voiceDisplayNames,
+        },
+      );
+      if (decision.surface) {
+        gatedCandidates.push(candidate);
+      } else {
+        out.themesSuppressedByNovelty += 1;
+        console.log(
+          `clusterMomentsForRun: novelty gate suppressed "${candidate.label}" — ${decision.rationale}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `clusterMomentsForRun: novelty gate error on "${candidate.label}" (surfacing as fail-safe):`,
+        err instanceof Error ? err.message : String(err),
+      );
+      gatedCandidates.push(candidate);
+    }
+  }
+
   // Persist. Use ignoreDuplicates so the per-day UNIQUE constraint
   // absorbs same-theme-same-day re-runs cleanly (re-clustering an
   // already-surfaced day is a no-op rather than an error).
-  for (const c of candidates) {
+  for (const c of gatedCandidates) {
     const { error } = await supabase.from("themes").upsert(
       {
         user_id: input.userId,
@@ -242,4 +295,25 @@ function uniqueNonNull<T>(values: readonly (T | null)[]): T[] {
   const out = new Set<T>();
   for (const v of values) if (v != null) out.add(v);
   return [...out];
+}
+
+/**
+ * Load a (voice_id → display_name) map for all voices in the catalog.
+ * Used by the novelty gate to render signal detail copy.
+ */
+async function loadVoiceDisplayNames(
+  supabase: SupabaseClient,
+): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from("voices")
+    .select("id, display_name");
+  if (error) {
+    console.warn(`loadVoiceDisplayNames failed (using ids as labels): ${error.message}`);
+    return new Map();
+  }
+  const map = new Map<string, string>();
+  for (const row of data ?? []) {
+    map.set(row.id as string, (row.display_name as string) ?? (row.id as string));
+  }
+  return map;
 }
