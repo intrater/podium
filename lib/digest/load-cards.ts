@@ -115,6 +115,12 @@ export async function loadDigestCards(
       )
       .eq("team_id", teamId)
       .eq("hidden", false)
+      // Scope to episode cards only — v2 introduces card_type='theme'
+      // and 'notable_take' rows that have their own loaders.
+      // Migration 0021 backfilled all legacy NULL rows to 'episode'
+      // and the pipeline writer (lib/ingest/pipeline.ts) sets it
+      // explicitly on new writes, so an .eq() check is sufficient.
+      .eq("card_type", "episode")
       .order("surfaced_at", { ascending: false })
       .limit(CARDS_LIMIT)
       .returns<CardRow[]>(),

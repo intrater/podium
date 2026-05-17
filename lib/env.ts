@@ -58,6 +58,16 @@ export const env = createEnv({
   client: {
     NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+    /**
+     * v2 editorial-reframe feature flag. When "on", the home-page
+     * feed includes theme + notable-take cards alongside episode
+     * cards. Default "off" so production users see only the v1
+     * episode-card surface until v2 is dogfooded clean. Flip via
+     * .env.local + Vercel env to roll v2 out.
+     */
+    NEXT_PUBLIC_PODIUM_V2_FEED: z
+      .enum(["on", "off"])
+      .default("off"),
   },
 
   /**
@@ -68,6 +78,7 @@ export const env = createEnv({
   runtimeEnv: {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    NEXT_PUBLIC_PODIUM_V2_FEED: process.env.NEXT_PUBLIC_PODIUM_V2_FEED,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,

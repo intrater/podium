@@ -475,7 +475,11 @@ export async function runIngestPipeline(
           surfaced_at: new Date().toISOString(),
           total_relevant_seconds: totalRelevantSeconds,
           episode_summary: result.extraction.episode_rollup || null,
+          card_type: "episode",
         },
+        // Partial unique on (user_id, team_id, episode_id) WHERE
+        // card_type = 'episode' (migration 0021) — onConflict carries
+        // the column list; Postgres selects the matching partial index.
         { onConflict: "user_id,team_id,episode_id" },
       );
     if (cardErr) {
