@@ -39,6 +39,8 @@ import {
   type TeamContext,
   type TranscriptLine,
 } from "@/lib/anthropic/types";
+import { extractTopicKey } from "@/lib/voice-memory/extract-topic-key";
+import { loadVoiceLookup, writeVoicePosition } from "@/lib/voice-memory/write";
 
 import type {
   IngestPipelineInput,
@@ -85,8 +87,14 @@ export async function runIngestPipeline(
     particleCallsAttempted: 0,
     anthropicCallsAttempted: 0,
     episodesSkippedByDeadline: 0,
+    voicePositionsWritten: 0,
   };
   const startMs = Date.now();
+
+  // Load the (podcast_id → voice_id) lookup once. Empty map is fine —
+  // v2-era runs only write voice positions for Tier-A episodes; empty
+  // lookup means no rows get written, which is the correct v1-state.
+  const voiceLookup = await loadVoiceLookup(deps.supabase);
 
   // 1. Load the team's universe (slugs + IDs cached at seed time).
   const team = await loadTeamContext(deps, input.teamId);
@@ -339,11 +347,12 @@ export async function runIngestPipeline(
     }
 
     // 7a. Episode row.
+    const localPodcastId = await resolveLocalPodcastId(deps.supabase, result.episode.podcast.id);
     const { data: episodeRow, error: epErr } = await deps.supabase
       .from("episodes")
       .upsert(
         {
-          podcast_id: await resolveLocalPodcastId(deps.supabase, result.episode.podcast.id),
+          podcast_id: localPodcastId,
           particle_episode_id: result.episode.id,
           title: result.episode.title,
           published_at: result.episode.published_at,
@@ -363,6 +372,13 @@ export async function runIngestPipeline(
     }
     out.episodesPersisted += 1;
     const episodeUuid = episodeRow.id as string;
+
+    // Voice-memory routing: only Tier-A podcasts have a voice in the
+    // lookup. Tier B/C podcasts contribute to theme frequency only,
+    // so we skip voice_position writes for them.
+    const voiceIdForEpisode = localPodcastId
+      ? voiceLookup.get(localPodcastId) ?? null
+      : null;
 
     // 7b. Segment rows — one per extracted moment, keyed on
     //     particle_segment_id (the UNIQUE upsert column). Mentions mode
@@ -392,14 +408,55 @@ export async function runIngestPipeline(
         prompt_version: EPISODE_EXTRACTION_PROMPT_VERSION,
       };
     });
-    const { error: segErr, count: segCount } = await deps.supabase
+    const { data: segmentInsertedRows, error: segErr, count: segCount } = await deps.supabase
       .from("segments")
-      .upsert(segmentRows, { onConflict: "particle_segment_id", count: "exact" });
+      .upsert(segmentRows, { onConflict: "particle_segment_id", count: "exact" })
+      .select("id, particle_segment_id");
     if (segErr) {
       console.error(`pipeline: segments upsert failed for ${result.episode.id}:`, segErr.message);
       continue;
     }
     out.segmentsPersisted += segCount ?? segmentRows.length;
+
+    // 7b-ii. Voice memory — for Tier-A episodes, write one
+    // voice_position per moment. Append-only via UNIQUE constraint
+    // on (voice_id, team_id, topic_key, segment_id) so a re-extract
+    // of the same moment doesn't duplicate. Skipped entirely when
+    // the episode's podcast isn't Tier-A.
+    if (voiceIdForEpisode) {
+      const particleIdToLocalId = new Map<string, string>();
+      for (const row of segmentInsertedRows ?? []) {
+        particleIdToLocalId.set(row.particle_segment_id as string, row.id as string);
+      }
+      for (const moment of result.extraction.moments) {
+        const segmentParticleId =
+          discoveryMode === "list-episodes"
+            ? `${result.episode.id}:${moment.start_seconds}-${moment.end_seconds}`
+            : moment.particle_segment_id;
+        const segmentLocalId = particleIdToLocalId.get(segmentParticleId);
+        if (!segmentLocalId) continue;
+        try {
+          await writeVoicePosition(deps.supabase, {
+            voiceId: voiceIdForEpisode,
+            teamId: input.teamId,
+            topicKey: extractTopicKey(moment.surfacing_entities),
+            positionSummary: moment.summary,
+            evidenceQuote: moment.pull_quotes[0] ?? null,
+            segmentId: segmentLocalId,
+            promptVersion: EPISODE_EXTRACTION_PROMPT_VERSION,
+          });
+          out.voicePositionsWritten += 1;
+        } catch (err) {
+          // Voice-memory writes are auxiliary — don't fail the run
+          // over them. Log and continue; the segment + card are
+          // already persisted and surface to the user regardless.
+          console.warn(
+            `pipeline: voice_position write failed for moment ${segmentParticleId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    }
 
     // 7c. Card row — uses the extractor's episode_rollup directly.
     const totalRelevantSeconds = result.extraction.moments.reduce(

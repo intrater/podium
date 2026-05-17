@@ -46,6 +46,8 @@ function makeSupabaseStub(
     episodes: Record<string, unknown>[];
     segments: Record<string, unknown>[];
     cards: Record<string, unknown>[];
+    voices: Record<string, unknown>[];
+    voice_positions: Record<string, unknown>[];
   };
 } {
   const recorded: RecordedQuery[] = [];
@@ -56,6 +58,8 @@ function makeSupabaseStub(
     episodes: [] as Record<string, unknown>[],
     segments: initialState.segments ?? [],
     cards: [] as Record<string, unknown>[],
+    voices: [] as Record<string, unknown>[],
+    voice_positions: [] as Record<string, unknown>[],
   };
 
   const tableOf = (table: string): Record<string, unknown>[] => {
@@ -72,6 +76,10 @@ function makeSupabaseStub(
         return store.segments;
       case "cards":
         return store.cards;
+      case "voices":
+        return store.voices;
+      case "voice_positions":
+        return store.voice_positions;
       default:
         throw new Error(`unknown table: ${table}`);
     }
@@ -346,6 +354,168 @@ const podcastsFixture = [
 ];
 
 // ─── Happy path ────────────────────────────────────────────────────
+
+// ─── Voice memory writes (U4) ──────────────────────────────────────
+
+describe("runIngestPipeline — voice memory writes (U4)", () => {
+  it("writes a voice_position per moment when the episode's podcast has a Tier-A voice", async () => {
+    const { client, store } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    });
+    // Configure a Tier-A voice for the fixture podcast. Pipeline's
+    // loadVoiceLookup will discover this and route the moment's
+    // position through to voice_positions.
+    store.voices.push({
+      id: "voice_test_pod",
+      kind: "show",
+      tier: "A",
+      display_name: "Test Pod Voice",
+      podcast_id: "pod_local",
+    });
+
+    const particle = makeParticleStub({
+      mentions: {
+        ent_purdy: [
+          {
+            episode: {
+              id: "ep_voice_1",
+              title: "Voice Memory Test Episode",
+              published_at: "2026-05-09T12:00:00Z",
+              podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+              audio_url: "https://example.test/episode.mp3",
+            },
+            mention_count: 1,
+            mention_variants: ["Brock Purdy"],
+            windows: [
+              {
+                segment: { id: "seg_voice_1", type: "TOPIC_DISCUSSION", title: "On Purdy contract" },
+                start_seconds: 60,
+                end_seconds: 120,
+              },
+            ],
+          },
+        ],
+      },
+      transcripts: {
+        ep_voice_1: { text: "Purdy is worth every penny of the extension." },
+      },
+    });
+
+    const anthropic = makeAnthropicStub({
+      ep_voice_1: {
+        moments: [
+          {
+            particle_segment_id: "seg_voice_1",
+            start_seconds: 60,
+            end_seconds: 120,
+            summary: "Purdy's extension is justified at $53M AAV.",
+            pull_quotes: ["Purdy is worth every penny of the extension."],
+            bullets: ["Peer-comp argument.", "Justifies AAV.", "Generation-defining contract."],
+            surfacing_entities: ["Purdy contract"],
+          },
+        ],
+        episode_rollup: "Test rollup.",
+      },
+    });
+
+    const out = await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+      },
+    );
+
+    expect(out.voicePositionsWritten).toBe(1);
+    expect(store.voice_positions).toHaveLength(1);
+    const position = store.voice_positions[0] as {
+      voice_id: string;
+      team_id: string;
+      topic_key: string;
+      position_summary: string;
+      evidence_quote: string;
+    };
+    expect(position.voice_id).toBe("voice_test_pod");
+    expect(position.team_id).toBe(TEAM_ID);
+    expect(position.topic_key).toBe("purdy-contract");
+    expect(position.position_summary).toBe("Purdy's extension is justified at $53M AAV.");
+    expect(position.evidence_quote).toBe("Purdy is worth every penny of the extension.");
+  });
+
+  it("does NOT write voice_positions when the episode's podcast has no Tier-A voice", async () => {
+    // No voice seeded → Tier B/C path → no voice_position writes
+    // even though the moment lands in segments and cards as usual.
+    const { client, store } = makeSupabaseStub({
+      team: teamFixture,
+      universe: universeFixture,
+      podcasts: podcastsFixture,
+    });
+    // store.voices is empty by default — Tier-B/C behaviour.
+
+    const particle = makeParticleStub({
+      mentions: {
+        ent_purdy: [
+          {
+            episode: {
+              id: "ep_no_voice_1",
+              title: "Tier-C Show Episode",
+              published_at: "2026-05-09T12:00:00Z",
+              podcast: { id: "pod_particle_1", title: "Test Pod", slug: "test-pod" },
+              audio_url: "https://example.test/episode.mp3",
+            },
+            mention_count: 1,
+            mention_variants: ["Brock Purdy"],
+            windows: [
+              {
+                segment: { id: "seg_no_voice_1", type: "TOPIC_DISCUSSION", title: "On Purdy" },
+                start_seconds: 60,
+                end_seconds: 120,
+              },
+            ],
+          },
+        ],
+      },
+      transcripts: {
+        ep_no_voice_1: { text: "Purdy stuff." },
+      },
+    });
+
+    const anthropic = makeAnthropicStub({
+      ep_no_voice_1: {
+        moments: [
+          {
+            particle_segment_id: "seg_no_voice_1",
+            start_seconds: 60,
+            end_seconds: 120,
+            summary: "A Tier-C take.",
+            pull_quotes: ["Purdy stuff."],
+            bullets: ["A.", "B.", "C."],
+            surfacing_entities: ["Purdy contract"],
+          },
+        ],
+        episode_rollup: "Test rollup.",
+      },
+    });
+
+    const out = await runIngestPipeline(
+      { supabase: client, particle, anthropic, userId: USER_ID },
+      {
+        teamId: TEAM_ID,
+        podcastIds: ["pod_particle_1"],
+        sinceTimestamp: "2026-05-08T00:00:00Z",
+      },
+    );
+
+    // Segments and cards still land as normal — only voice memory skipped.
+    expect(out.segmentsPersisted).toBe(1);
+    expect(out.cardsPersisted).toBe(1);
+    expect(out.voicePositionsWritten).toBe(0);
+    expect(store.voice_positions).toHaveLength(0);
+  });
+});
 
 describe("runIngestPipeline — happy path", () => {
   it("persists episodes, segments, and cards from a single mention", async () => {

@@ -74,6 +74,13 @@ export interface IngestPipelineOutput {
    * prompt_version, so the next run picks them up via filterAlreadyPersisted.
    */
   episodesSkippedByDeadline: number;
+  /**
+   * Voice-position rows written this run. Append-only and bounded by
+   * the UNIQUE(voice_id, team_id, topic_key, segment_id) constraint,
+   * so re-extracts don't inflate this. Only Tier-A episodes
+   * contribute; Tier B/C episodes never write voice positions.
+   */
+  voicePositionsWritten: number;
 }
 
 export interface PipelineDeps {
