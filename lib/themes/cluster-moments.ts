@@ -15,6 +15,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { AnthropicClient } from "../anthropic/client.ts";
 import { clusterThemes } from "../anthropic/cluster-themes.ts";
+import {
+  THEME_CARD_PROMPT_VERSION,
+  writeThemeCard,
+  type ThemeCardOutput,
+} from "../anthropic/write-theme-card.ts";
+import {
+  NOTABLE_TAKE_CARD_PROMPT_VERSION,
+  writeNotableTakeCard,
+  type NotableTakeCardOutput,
+} from "../anthropic/write-notable-take-card.ts";
 import { loadTeamBrain } from "../team-brain/load.ts";
 import { extractTopicKey } from "../voice-memory/extract-topic-key.ts";
 
@@ -46,6 +56,10 @@ export interface ClusterMomentsOutput {
   /** Themes that landed as new rows (excluding cross-day duplicates that
    *  hit the per-day UNIQUE constraint and silently dropped). */
   themesPersisted: number;
+  /** Theme cards written via writeThemeCard + persisted to cards table. */
+  themeCardsWritten: number;
+  /** Notable-take cards written + persisted to cards table. */
+  notableTakeCardsWritten: number;
   /** Themes tagged as manufactured news-echo. */
   newsEchoTagged: number;
 }
@@ -77,6 +91,8 @@ export async function clusterMomentsForRun(
     themesProduced: 0,
     themesSuppressedByNovelty: 0,
     themesPersisted: 0,
+    themeCardsWritten: 0,
+    notableTakeCardsWritten: 0,
     newsEchoTagged: 0,
   };
 
@@ -163,11 +179,78 @@ export async function clusterMomentsForRun(
     }
   }
 
-  // Persist. Use ignoreDuplicates so the per-day UNIQUE constraint
-  // absorbs same-theme-same-day re-runs cleanly (re-clustering an
-  // already-surfaced day is a no-op rather than an error).
+  // Persist themes + write cards. For each gate-passed theme:
+  //   1. Upsert the theme row (gives us the theme_id).
+  //   2. Decide card_type:
+  //        member_voice_ids.length === 1 AND voice is Tier-A → notable_take
+  //        else                                              → theme
+  //   3. Call the appropriate card writer (Anthropic).
+  //   4. Persist a `cards` row with the structured card_body.
+  //
+  // Card-writer failures (transient or schema) return null; we log
+  // and skip the cards row for that theme rather than crashing the
+  // run. The theme row still lands so U8's surface layer can fall
+  // back to a minimal display if needed.
+  const tierAIds = await tierAVoiceIds(supabase);
+  const tierAVoiceSet = new Set<string>(Object.keys(tierAIds));
   for (const c of gatedCandidates) {
-    const { error } = await supabase.from("themes").upsert(
+    const themeId = await persistTheme(supabase, input, c);
+    if (!themeId) continue;
+    out.themesPersisted += 1;
+
+    if (!teamBrain) continue; // can't write cards without brain context
+
+    const isSoloTierA =
+      c.member_voice_ids.length === 1 && tierAVoiceSet.has(c.member_voice_ids[0]);
+
+    try {
+      if (isSoloTierA) {
+        const written = await writeAndPersistNotableTakeCard(
+          supabase,
+          anthropic,
+          teamBrain,
+          input,
+          c,
+          moments,
+          voiceDisplayNames,
+        );
+        if (written) out.notableTakeCardsWritten += 1;
+      } else {
+        const written = await writeAndPersistThemeCard(
+          supabase,
+          anthropic,
+          teamBrain,
+          input,
+          c,
+          themeId,
+          moments,
+          voiceDisplayNames,
+        );
+        if (written) out.themeCardsWritten += 1;
+      }
+    } catch (err) {
+      console.warn(
+        `clusterMomentsForRun: card writer failed for "${c.label}" (theme persisted, no card):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  return out;
+}
+
+/** Upsert a theme row, return its id (or null on failure). */
+async function persistTheme(
+  supabase: SupabaseClient,
+  input: ClusterMomentsInput,
+  c: ThemeCandidate,
+): Promise<string | null> {
+  // Two-step: try insert first; on conflict (theme + day exists), select
+  // the existing row's id so the card-write path can still associate to
+  // a theme row. The per-day partial unique index handles the conflict.
+  const { data: inserted, error: insErr } = await supabase
+    .from("themes")
+    .upsert(
       {
         user_id: input.userId,
         team_id: input.teamId,
@@ -180,21 +263,171 @@ export async function clusterMomentsForRun(
         prompt_version: THEME_CLUSTERING_PROMPT_VERSION,
         surfaced_at: input.untilTimestamp,
       },
-      // The unique index is on (user_id, team_id, theme_signature,
-      // date(surfaced_at)). Supabase's onConflict needs a column
-      // list — pass the column names; the partial-index match is
-      // server-side.
       { onConflict: "user_id,team_id,theme_signature", ignoreDuplicates: true },
-    );
-    if (error) {
-      console.warn(
-        `clusterMomentsForRun: theme upsert failed for "${c.label}": ${error.message}`,
-      );
-      continue;
-    }
-    out.themesPersisted += 1;
+    )
+    .select("id")
+    .maybeSingle();
+  if (insErr) {
+    console.warn(`persistTheme: insert failed for "${c.label}": ${insErr.message}`);
+    return null;
   }
+  if (inserted?.id) return inserted.id as string;
 
+  // ignoreDuplicates returned no row — fetch the existing one.
+  const utcDate = new Date(input.untilTimestamp).toISOString().slice(0, 10);
+  const { data: existing } = await supabase
+    .from("themes")
+    .select("id")
+    .eq("user_id", input.userId)
+    .eq("team_id", input.teamId)
+    .eq("theme_signature", c.theme_signature)
+    .gte("surfaced_at", `${utcDate}T00:00:00Z`)
+    .lt("surfaced_at", `${utcDate}T23:59:59Z`)
+    .maybeSingle();
+  return (existing?.id as string) ?? null;
+}
+
+async function writeAndPersistThemeCard(
+  supabase: SupabaseClient,
+  anthropic: AnthropicClient,
+  teamBrain: import("../team-brain/types.ts").TeamBrain,
+  input: ClusterMomentsInput,
+  candidate: ThemeCandidate,
+  themeId: string,
+  allMoments: readonly MomentForClustering[],
+  voiceDisplayNames: Map<string, string>,
+): Promise<boolean> {
+  const members = candidate.member_voice_ids.map((vid) => {
+    const memberMoments = allMoments.filter(
+      (m) => m.voice_id === vid && candidate.member_segment_ids.includes(m.segment_id),
+    );
+    return {
+      voice_id: vid,
+      voice_display_name: voiceDisplayNames.get(vid) ?? vid,
+      summary: memberMoments[0]?.summary ?? "",
+      available_pull_quotes: memberMoments
+        .map((m) => m.pull_quote)
+        .filter((q): q is string => q !== null),
+    };
+  });
+
+  const output: ThemeCardOutput | null = await writeThemeCard(anthropic, {
+    teamBrain,
+    theme_label: candidate.label,
+    theme_surfacing_entities: candidate.surfacing_entities,
+    members,
+    novelty_rationale: null, // could thread from the gate decision; v1 keeps simple
+  });
+  if (!output) return false;
+
+  // Pick a representative episode_id for the card (first member's
+  // episode). For theme cards this is informational only — the audio
+  // player picks the right segment by member_segment_ids[i].
+  const firstMember = allMoments.find(
+    (m) => candidate.member_segment_ids[0] === m.segment_id,
+  );
+  const representativeEpisodeId = await resolveEpisodeIdForSegment(
+    supabase,
+    firstMember?.segment_id ?? null,
+  );
+
+  const { error } = await supabase.from("cards").upsert(
+    {
+      user_id: input.userId,
+      team_id: input.teamId,
+      episode_id: representativeEpisodeId,
+      card_type: "theme",
+      theme_id: themeId,
+      surfaced_at: input.untilTimestamp,
+      card_title: output.title,
+      card_body: output,
+      prompt_version: THEME_CARD_PROMPT_VERSION,
+      total_relevant_seconds: null,
+      episode_summary: null,
+    },
+    {
+      onConflict: "user_id,team_id,theme_id",
+      ignoreDuplicates: true,
+    },
+  );
+  if (error) {
+    console.warn(`writeAndPersistThemeCard: upsert failed: ${error.message}`);
+    return false;
+  }
+  return true;
+}
+
+async function writeAndPersistNotableTakeCard(
+  supabase: SupabaseClient,
+  anthropic: AnthropicClient,
+  teamBrain: import("../team-brain/types.ts").TeamBrain,
+  input: ClusterMomentsInput,
+  candidate: ThemeCandidate,
+  allMoments: readonly MomentForClustering[],
+  voiceDisplayNames: Map<string, string>,
+): Promise<boolean> {
+  const voiceId = candidate.member_voice_ids[0];
+  const memberMoment = allMoments.find(
+    (m) => m.voice_id === voiceId && candidate.member_segment_ids.includes(m.segment_id),
+  );
+  if (!memberMoment) return false;
+
+  const output: NotableTakeCardOutput | null = await writeNotableTakeCard(anthropic, {
+    teamBrain,
+    voice_display_name: voiceDisplayNames.get(voiceId) ?? voiceId,
+    summary: memberMoment.summary,
+    available_pull_quotes: memberMoment.pull_quote ? [memberMoment.pull_quote] : [],
+    novelty_rationale: null,
+  });
+  if (!output) return false;
+
+  const episodeId = await resolveEpisodeIdForSegment(supabase, memberMoment.segment_id);
+  if (!episodeId) return false;
+
+  const { error } = await supabase.from("cards").upsert(
+    {
+      user_id: input.userId,
+      team_id: input.teamId,
+      episode_id: episodeId,
+      card_type: "notable_take",
+      notable_take_voice_id: voiceId,
+      surfaced_at: input.untilTimestamp,
+      card_title: output.title,
+      card_body: output,
+      prompt_version: NOTABLE_TAKE_CARD_PROMPT_VERSION,
+      total_relevant_seconds: null,
+      episode_summary: null,
+    },
+    {
+      onConflict: "user_id,team_id,notable_take_voice_id,episode_id",
+      ignoreDuplicates: true,
+    },
+  );
+  if (error) {
+    console.warn(`writeAndPersistNotableTakeCard: upsert failed: ${error.message}`);
+    return false;
+  }
+  return true;
+}
+
+async function resolveEpisodeIdForSegment(
+  supabase: SupabaseClient,
+  segmentId: string | null,
+): Promise<string | null> {
+  if (!segmentId) return null;
+  const { data } = await supabase
+    .from("segments")
+    .select("episode_id")
+    .eq("id", segmentId)
+    .maybeSingle();
+  return (data?.episode_id as string) ?? null;
+}
+
+/** Cached lookup for Tier-A voice ids; one DB query per run. */
+async function tierAVoiceIds(supabase: SupabaseClient): Promise<Record<string, true>> {
+  const { data } = await supabase.from("voices").select("id").eq("tier", "A");
+  const out: Record<string, true> = {};
+  for (const row of data ?? []) out[row.id as string] = true;
   return out;
 }
 
