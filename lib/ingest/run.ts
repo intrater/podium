@@ -322,7 +322,7 @@ async function detectAndMarkSilentFailures(
   const { data: allStartRows, error: startErr } = await deps.supabase
     .from("system_alerts")
     .select("created_at, kind, payload")
-    .in("kind", ["manual_run", "scheduled_run"])
+    .in("kind", ["manual_run", "scheduled_run", "weekly_brain_update"])
     .gte("created_at", lookbackStart);
   if (startErr) {
     console.warn(`runDailyIngestion: silent-failure scan failed (${startErr.message}); skipping`);
