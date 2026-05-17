@@ -1,7 +1,8 @@
 ---
-status: active
+status: completed
 plan_type: feat
 created: 2026-05-17
+completed: 2026-05-17
 deepened: null
 origin: docs/brainstorms/podium-v2-editorial-direction.md
 ---
