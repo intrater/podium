@@ -86,3 +86,19 @@ export type DigestFeedItem =
   | DigestEpisodeCard
   | DigestThemeCard
   | DigestNotableTakeCard;
+
+/**
+ * Extract a date key for grouping a feed item under a day section.
+ *
+ * - Episode cards group by their episode's `publishedAt` (matches v1).
+ * - Notable-take cards also group by source episode's `publishedAt`
+ *   (the take is anchored to a specific episode).
+ * - Theme cards group by `surfacedAt` — themes span multiple episodes
+ *   so there's no single published_at; "today's conversation" is the
+ *   meaningful timestamp.
+ */
+export function feedItemDateIso(item: DigestFeedItem): string | null {
+  if (item.card_type === "episode") return item.episode.publishedAt;
+  if (item.card_type === "notable_take") return item.episode.publishedAt;
+  return item.surfacedAt;
+}

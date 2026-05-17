@@ -22,6 +22,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { feedItemDateIso, type DigestFeedItem } from "./types";
+
 export interface DigestSegment {
   id: string;
   particleSegmentId: string | null;
@@ -302,6 +304,55 @@ export function groupCardsByDayWindow(
     sections.push({ dateKey: "earlier", label: "Earlier", cards: earlier });
   }
 
+  return sections;
+}
+
+/**
+ * v2 grouping — same shape as groupCardsByDayWindow but operates on
+ * the discriminated DigestFeedItem union (episode | theme |
+ * notable_take). Uses `feedItemDateIso` to pick the right timestamp
+ * per card_type (publishedAt for episode/notable_take, surfacedAt
+ * for theme).
+ */
+export interface DigestFeedGroup {
+  label: string;
+  dateKey: string;
+  items: DigestFeedItem[];
+}
+
+export function groupFeedByDayWindow(
+  items: readonly DigestFeedItem[],
+  windowDays: number,
+  now: Date = new Date(),
+): DigestFeedGroup[] {
+  const todayKey = localDateKey(now);
+  const yesterdayKey = localDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+
+  const byKey = new Map<string, DigestFeedItem[]>();
+  for (const item of items) {
+    const iso = feedItemDateIso(item);
+    const key = iso ? localDateKey(new Date(iso)) : "unknown";
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(item);
+  }
+
+  const windowKeys: string[] = [];
+  for (let i = 0; i < windowDays; i += 1) {
+    windowKeys.push(localDateKey(new Date(now.getTime() - i * 24 * 60 * 60 * 1000)));
+  }
+  const sections: DigestFeedGroup[] = windowKeys.map((dateKey) => ({
+    dateKey,
+    label: labelFor(dateKey, todayKey, yesterdayKey),
+    items: byKey.get(dateKey) ?? [],
+  }));
+
+  const earlier: DigestFeedItem[] = [];
+  for (const [key, list] of byKey.entries()) {
+    if (!windowKeys.includes(key)) earlier.push(...list);
+  }
+  if (earlier.length > 0) {
+    sections.push({ dateKey: "earlier", label: "Earlier", items: earlier });
+  }
   return sections;
 }
 

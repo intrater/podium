@@ -1,15 +1,15 @@
 import { retryDailyIngestion } from "@/app/(app)/actions";
-import { EpisodeCard } from "@/components/digest/episode-card";
+import { CardRenderer } from "@/components/digest/card-renderer";
 import { DigestLoadingState } from "@/components/digest/loading-state";
 import { PipelineHealthBanner } from "@/components/digest/pipeline-health-banner";
 import { RefreshBanner } from "@/components/digest/refresh-banner";
 import { DaySummary, ScanSummary } from "@/components/digest/scan-summary";
 import {
-  groupCardsByDayWindow,
-  loadDigestCards,
+  groupFeedByDayWindow,
   loadLatestRunStatus,
   type LatestRunStatus,
 } from "@/lib/digest/load-cards";
+import { loadDigestFeed } from "@/lib/digest/merge-feed";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -32,42 +32,33 @@ const STATUS_FALLBACK: LatestRunStatus = {
 /**
  * Mobile-first digest grid (the home screen).
  *
+ * v2 reads via `loadDigestFeed` (lib/digest/merge-feed.ts) which
+ * returns a discriminated union of episode, theme, and notable-take
+ * cards. The feature flag NEXT_PUBLIC_PODIUM_V2_FEED controls whether
+ * the theme/notable_take loaders run at all — off-by-default
+ * preserves the v1 home-feed shape until v2 is dogfooded clean.
+ *
  * RSC reads via the user-scoped Supabase client so the AE3 feedback
- * filter inside `loadDigestCards` exercises RLS and stays user-bound.
+ * filter inside the loaders exercises RLS and stays user-bound.
  * Status (system_alerts) requires the admin client because operational
  * tables are service-role-only after migration 0010.
- *
- * Three top-level branches:
- *
- *   - Cards exist → grid + RefreshBanner (RSC content; client banner
- *     watches for fresher runs and prompts the user to reload).
- *   - Zero cards + status == completed → empty fallback (the run
- *     genuinely landed nothing — quiet day for the team).
- *   - Zero cards + any other status → DigestLoadingState (handles
- *     running, failed, cost_aborted, and auto-triggers retry on
- *     no_runs per Q8).
- *
- * A status-query failure does NOT block the page — Promise.allSettled
- * isolates the two reads so the cards still render even when
- * system_alerts is temporarily unavailable. The status surface degrades
- * to "unknown" / no refresh banner.
  */
 export default async function DigestPage() {
   const userClient = await createSupabaseServerClient();
   const adminClient = getSupabaseAdmin();
 
-  const [cardsResult, latestRunResult] = await Promise.allSettled([
-    loadDigestCards(userClient, TEAM_ID),
+  const [feedResult, latestRunResult] = await Promise.allSettled([
+    loadDigestFeed(userClient, TEAM_ID),
     loadLatestRunStatus(adminClient),
   ]);
 
-  if (cardsResult.status === "rejected") {
-    // Cards query failed — let Next.js's error boundary handle it.
+  if (feedResult.status === "rejected") {
+    // Feed query failed — let Next.js's error boundary handle it.
     // This path indicates RLS denial or a real DB outage, both of
     // which are worth surfacing rather than silently hiding.
-    throw cardsResult.reason;
+    throw feedResult.reason;
   }
-  const cards = cardsResult.value;
+  const feed = feedResult.value;
   const latestRun: LatestRunStatus =
     latestRunResult.status === "fulfilled"
       ? latestRunResult.value
@@ -82,7 +73,7 @@ export default async function DigestPage() {
   // completed, even with zero cards, we render the day-window grid so
   // the user sees explicit "no new content" sections rather than a
   // blank screen.
-  if (cards.length === 0 && latestRun.status !== "completed") {
+  if (feed.length === 0 && latestRun.status !== "completed") {
     return (
       <DigestLoadingState
         initialStatus={latestRun.status}
@@ -93,37 +84,51 @@ export default async function DigestPage() {
     );
   }
 
-  const groups = groupCardsByDayWindow(cards, DAY_WINDOW);
+  const groups = groupFeedByDayWindow(feed, DAY_WINDOW);
+
+  // ScanSummary + DaySummary today consume DigestCard[]. They only
+  // read `episode.durationSeconds` and `segments` from each card to
+  // produce the time-saved math. Filter to episode cards so the math
+  // continues to work in v1-mode; in v2-mode this under-reports
+  // because theme/notable_take cards don't have per-card duration —
+  // the summary feature is v1-shaped and can be reworked later.
+  const episodeCardsForSummaries = feed
+    .filter((item): item is import("@/lib/digest/types").DigestEpisodeCard => item.card_type === "episode");
 
   return (
     <>
       <RefreshBanner initialRunCreatedAt={latestRun.createdAt} />
       <PipelineHealthBanner latestRun={latestRun} />
-      <ScanSummary cards={cards} />
+      <ScanSummary cards={episodeCardsForSummaries} />
       <div className="flex flex-col gap-6">
-        {groups.map((group) => (
-          <section key={group.dateKey} aria-label={group.label}>
-            <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
-              <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-                {group.label}
-              </h2>
-              <DaySummary cards={group.cards} />
-            </div>
-            {group.cards.length === 0 ? (
-              <p className="text-muted-foreground px-1 text-xs italic">
-                No 49ers content this day.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {group.cards.map((card) => (
-                  <li key={card.id}>
-                    <EpisodeCard card={card} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ))}
+        {groups.map((group) => {
+          const episodeItemsForDay = group.items.filter(
+            (i): i is import("@/lib/digest/types").DigestEpisodeCard => i.card_type === "episode",
+          );
+          return (
+            <section key={group.dateKey} aria-label={group.label}>
+              <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
+                <h2 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                  {group.label}
+                </h2>
+                <DaySummary cards={episodeItemsForDay} />
+              </div>
+              {group.items.length === 0 ? (
+                <p className="text-muted-foreground px-1 text-xs italic">
+                  No 49ers content this day.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {group.items.map((item) => (
+                    <li key={item.id}>
+                      <CardRenderer item={item} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
       </div>
     </>
   );
