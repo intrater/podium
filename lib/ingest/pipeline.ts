@@ -39,6 +39,7 @@ import {
   type TeamContext,
   type TranscriptLine,
 } from "@/lib/anthropic/types";
+import { clusterMomentsForRun } from "@/lib/themes/cluster-moments";
 import { extractTopicKey } from "@/lib/voice-memory/extract-topic-key";
 import { loadVoiceLookup, writeVoicePosition } from "@/lib/voice-memory/write";
 
@@ -88,6 +89,7 @@ export async function runIngestPipeline(
     anthropicCallsAttempted: 0,
     episodesSkippedByDeadline: 0,
     voicePositionsWritten: 0,
+    themesPersisted: 0,
   };
   const startMs = Date.now();
 
@@ -481,6 +483,43 @@ export async function runIngestPipeline(
       continue;
     }
     out.cardsPersisted += 1;
+  }
+
+  // 8. Stage 2 — theme clustering. One Anthropic call across the run's
+  //    moment window. Skipped if we're already at the deadline (the
+  //    extraction loop self-terminated late) — better to ship a run
+  //    with the episode-card surface populated and no themes than to
+  //    crash the run mid-clustering.
+  const remainingMs = PIPELINE_DEADLINE_MS - (Date.now() - startMs);
+  if (remainingMs < 30_000) {
+    console.warn(
+      `pipeline: skipping Stage 2 clustering — only ${Math.round(remainingMs / 1000)}s remaining, below the 30s reserve.`,
+    );
+  } else {
+    try {
+      const clusterResult = await clusterMomentsForRun(deps.supabase, deps.anthropic, {
+        userId: deps.userId,
+        teamId: input.teamId,
+        teamName: team.name,
+        sinceTimestamp: input.sinceTimestamp,
+        untilTimestamp: input.untilTimestamp ?? new Date().toISOString(),
+      });
+      // Only bump anthropicCallsAttempted when the orchestrator
+      // actually fired a call. Empty-moments windows short-circuit
+      // inside clusterThemes without hitting Anthropic.
+      if (clusterResult.momentsConsidered > 0) {
+        out.anthropicCallsAttempted += 1;
+      }
+      out.themesPersisted += clusterResult.themesPersisted;
+      console.log(
+        `pipeline: Stage 2 clustering — ${clusterResult.momentsConsidered} moments → ${clusterResult.themesProduced} themes (${clusterResult.themesPersisted} persisted, ${clusterResult.newsEchoTagged} news-echo tagged).`,
+      );
+    } catch (err) {
+      console.warn(
+        `pipeline: Stage 2 clustering failed (run continues without themes):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   return out;

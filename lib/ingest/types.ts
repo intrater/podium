@@ -81,6 +81,12 @@ export interface IngestPipelineOutput {
    * contribute; Tier B/C episodes never write voice positions.
    */
   voicePositionsWritten: number;
+  /**
+   * Theme rows persisted this run by Stage 2 clustering. Bounded by
+   * the per-day UNIQUE(user_id, team_id, theme_signature, date) index,
+   * so re-runs of the same day are silently absorbed.
+   */
+  themesPersisted: number;
 }
 
 export interface PipelineDeps {
