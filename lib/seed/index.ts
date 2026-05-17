@@ -23,6 +23,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // Node's native TS support — used by `scripts/seed-supabase.ts`. Vitest and
 // Next.js both still resolve these via tsconfig's bundler resolution.
 import { podcasts } from "../../config/podcasts.ts";
+import { tierForSlug } from "../../config/tiers.ts";
 import { teams } from "../../config/teams.ts";
 import { niners } from "../universes/49ers.ts";
 import {
@@ -150,6 +151,7 @@ export async function runSeed(
           particle_slug: podcast.particleSlug,
           name: podcast.name,
           kind: podcast.kind,
+          tier: tierForSlug(podcast.particleSlug),
           in_catalog: true,
         },
         { onConflict: "particle_slug" },
